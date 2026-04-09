@@ -17,8 +17,8 @@ func TestExecutorRunBuildsClaudeCommand(t *testing.T) {
 		requirePair(t, cmd.Args, "--model", "sonnet")
 		requirePair(t, cmd.Args, "--permission-mode", "bypassPermissions")
 		requirePair(t, cmd.Args, "--add-dir", "/tmp/work")
-		if got := cmd.Args[len(cmd.Args)-1]; got != "Return JSON only." {
-			t.Fatalf("prompt arg = %q, want prompt", got)
+		if cmd.Stdin != "Return JSON only." {
+			t.Fatalf("stdin = %q, want prompt", cmd.Stdin)
 		}
 		return executor.Result{
 			Stdout:   `{"ok":true}`,
