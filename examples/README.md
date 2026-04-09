@@ -43,3 +43,26 @@ The example workflow uses:
 
 - `codex` with model `gpt-5.4` for writing and extending
 - `claude` with model `sonnet` for review
+
+## Development Workflow
+
+The development workflow example is a research-oriented sketch for a much larger
+agent pipeline inspired by `ib-broker-trading`.
+
+Files:
+
+- example overview: `examples/development-workflow/README.md`
+- workflow: `examples/development-workflow/workflows/feature-development.star`
+- agents: `examples/development-workflow/agents/`
+
+Important note:
+
+- this example uses a real `repeat_until` loop for spec review and refinement
+- later implementation and QA stages are still intentionally coarse-grained
+- the fully expanded workflow from `ib-broker-trading` is not currently supported by `daiag`
+
+Current runner gaps for the fully expanded topology:
+
+- no branch selection based on prior task results
+- no dynamic fan-out over generated task files
+- no built-in blocked or pause-and-resume workflow state
