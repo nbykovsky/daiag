@@ -1,0 +1,16 @@
+# macOS
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
+
+# Go
+bin/
+dist/
+cover.out
+coverage.out
+*.test
+
+# Local runtime data
+.daiag/
