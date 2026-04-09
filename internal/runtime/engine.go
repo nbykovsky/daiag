@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"daiag/internal/logging"
 	"daiag/internal/workflow"
@@ -47,6 +48,7 @@ type Engine struct {
 type state struct {
 	artifacts map[string]map[string]string
 	results   map[string]map[string]any
+	loops     map[string]int
 }
 
 func (e Engine) Run(ctx context.Context, input RunInput) error {
@@ -57,6 +59,7 @@ func (e Engine) Run(ctx context.Context, input RunInput) error {
 	st := &state{
 		artifacts: make(map[string]map[string]string),
 		results:   make(map[string]map[string]any),
+		loops:     make(map[string]int),
 	}
 
 	if e.Logger != nil {
@@ -160,7 +163,11 @@ func (e Engine) runTask(ctx context.Context, input RunInput, st *state, task *wo
 }
 
 func (e Engine) runRepeatUntil(ctx context.Context, input RunInput, st *state, loop *workflow.RepeatUntil) error {
+	defer delete(st.loops, loop.ID)
+
 	for i := 1; i <= loop.MaxIters; i++ {
+		st.loops[loop.ID] = i
+
 		if e.Logger != nil {
 			e.Logger.LoopIter(loop.ID, i)
 		}
@@ -275,6 +282,8 @@ func resolveStringExpr(expr workflow.StringExpr, st *state) (string, error) {
 	switch e := expr.(type) {
 	case workflow.Literal:
 		return e.Value, nil
+	case workflow.FormatExpr:
+		return renderFormatExpr(e, st)
 	case workflow.PathRef:
 		artifacts, ok := st.artifacts[e.StepID]
 		if !ok {
@@ -294,6 +303,10 @@ func resolveValueExpr(expr workflow.ValueExpr, st *state) (any, error) {
 	switch e := expr.(type) {
 	case workflow.Literal:
 		return e.Value, nil
+	case workflow.IntLiteral:
+		return e.Value, nil
+	case workflow.FormatExpr:
+		return renderFormatExpr(e, st)
 	case workflow.PathRef:
 		return resolveStringExpr(e, st)
 	case workflow.JSONRef:
@@ -306,9 +319,49 @@ func resolveValueExpr(expr workflow.ValueExpr, st *state) (any, error) {
 			return nil, fmt.Errorf("missing result field %q on step %q", e.Field, e.StepID)
 		}
 		return value, nil
+	case workflow.LoopIter:
+		iter, ok := st.loops[e.LoopID]
+		if !ok {
+			return nil, fmt.Errorf("loop %q is not active", e.LoopID)
+		}
+		return iter, nil
 	default:
 		return nil, fmt.Errorf("unsupported value expression type %T", expr)
 	}
+}
+
+func renderFormatExpr(expr workflow.FormatExpr, st *state) (string, error) {
+	values := make(map[string]string, len(expr.Args))
+	for key, valueExpr := range expr.Args {
+		value, err := resolveValueExpr(valueExpr, st)
+		if err != nil {
+			return "", fmt.Errorf("resolve format arg %q: %w", key, err)
+		}
+		values[key] = fmt.Sprint(value)
+	}
+
+	var rendered strings.Builder
+	for i := 0; i < len(expr.Template); {
+		if expr.Template[i] != '{' {
+			rendered.WriteByte(expr.Template[i])
+			i++
+			continue
+		}
+		end := strings.IndexByte(expr.Template[i:], '}')
+		if end <= 1 {
+			return "", fmt.Errorf("malformed format template %q", expr.Template)
+		}
+		end += i
+		key := expr.Template[i+1 : end]
+		value, ok := values[key]
+		if !ok {
+			return "", fmt.Errorf("missing format value %q", key)
+		}
+		rendered.WriteString(value)
+		i = end + 1
+	}
+
+	return rendered.String(), nil
 }
 
 func evalPredicate(predicate workflow.Predicate, st *state) (bool, error) {

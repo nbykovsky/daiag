@@ -67,12 +67,22 @@ func TestEngineRunWorkflowWithLoop(t *testing.T) {
 						Prompt: workflow.Prompt{
 							TemplatePath: "agents/reviewer.md",
 							Vars: map[string]workflow.StringExpr{
-								"POEM_PATH":   workflow.PathRef{StepID: "write_poem", ArtifactKey: "poem"},
-								"REVIEW_PATH": workflow.Literal{Value: "docs/features/rain/review.txt"},
+								"POEM_PATH": workflow.PathRef{StepID: "write_poem", ArtifactKey: "poem"},
+								"REVIEW_PATH": workflow.FormatExpr{
+									Template: "docs/features/rain/review-{iter}.txt",
+									Args: map[string]workflow.ValueExpr{
+										"iter": workflow.LoopIter{LoopID: "extend_until_ready"},
+									},
+								},
 							},
 						},
 						Artifacts: map[string]workflow.StringExpr{
-							"review": workflow.Literal{Value: "docs/features/rain/review.txt"},
+							"review": workflow.FormatExpr{
+								Template: "docs/features/rain/review-{iter}.txt",
+								Args: map[string]workflow.ValueExpr{
+									"iter": workflow.LoopIter{LoopID: "extend_until_ready"},
+								},
+							},
 						},
 						ResultKeys: []string{"outcome", "review_path"},
 					},
@@ -99,9 +109,11 @@ func TestEngineRunWorkflowWithLoop(t *testing.T) {
 	if _, err := os.Stat(poemPath); err != nil {
 		t.Fatalf("expected poem file: %v", err)
 	}
-	reviewPath := filepath.Join(baseDir, "docs", "features", "rain", "review.txt")
-	if _, err := os.Stat(reviewPath); err != nil {
-		t.Fatalf("expected review file: %v", err)
+	for _, filename := range []string{"review-1.txt", "review-2.txt"} {
+		reviewPath := filepath.Join(baseDir, "docs", "features", "rain", filename)
+		if _, err := os.Stat(reviewPath); err != nil {
+			t.Fatalf("expected review file %q: %v", filename, err)
+		}
 	}
 
 	output := logOutput.String()
@@ -123,6 +135,9 @@ func TestEngineRunWorkflowWithLoop(t *testing.T) {
 	}
 	if !strings.Contains(executor.prompts["review_poem"], "docs/features/rain/poem.md") {
 		t.Fatalf("review prompt = %q, want resolved poem path", executor.prompts["review_poem"])
+	}
+	if !strings.Contains(executor.prompts["review_poem"], "docs/features/rain/review-2.txt") {
+		t.Fatalf("review prompt = %q, want resolved iteration-specific review path", executor.prompts["review_poem"])
 	}
 }
 
@@ -185,14 +200,14 @@ func (f *fakeExecutor) Run(_ context.Context, req TaskRequest) (TaskResponse, er
 		}, nil
 	case "review_poem":
 		f.reviewRun++
-		path := filepath.Join(f.baseDir, "docs", "features", "rain", "review.txt")
+		path := filepath.Join(f.baseDir, "docs", "features", "rain", fmt.Sprintf("review-%d.txt", f.reviewRun))
 		writeFile(f.t, path, fmt.Sprintf("run=%d\n", f.reviewRun))
 		outcome := "not_ready"
 		if f.reviewRun >= 2 {
 			outcome = "ready"
 		}
 		return TaskResponse{
-			Stdout:   fmt.Sprintf(`{"outcome":"%s","review_path":"docs/features/rain/review.txt"}`, outcome),
+			Stdout:   fmt.Sprintf(`{"outcome":"%s","review_path":"docs/features/rain/review-%d.txt"}`, outcome, f.reviewRun),
 			ExitCode: 0,
 		}, nil
 	default:

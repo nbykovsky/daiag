@@ -57,6 +57,7 @@ func (l Loader) predeclared() starlark.StringDict {
 		"artifact":     starlark.NewBuiltin("artifact", l.builtinArtifact),
 		"path_ref":     starlark.NewBuiltin("path_ref", l.builtinPathRef),
 		"json_ref":     starlark.NewBuiltin("json_ref", l.builtinJSONRef),
+		"loop_iter":    starlark.NewBuiltin("loop_iter", l.builtinLoopIter),
 		"template_file": starlark.NewBuiltin(
 			"template_file",
 			l.builtinTemplateFile,

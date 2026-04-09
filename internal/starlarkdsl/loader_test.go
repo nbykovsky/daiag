@@ -50,11 +50,21 @@ wf = workflow(
                         "agents/reviewer.md",
                         vars = {
                             "POEM_PATH": path_ref("write_poem", "poem"),
-                            "REVIEW_PATH": format("{dir}/review.txt", dir = feature_dir),
+                            "REVIEW_PATH": format(
+                                "{dir}/review-{iter}.txt",
+                                dir = feature_dir,
+                                iter = loop_iter("extend_until_ready"),
+                            ),
                         },
                     ),
                     artifacts = {
-                        "review": artifact(format("{dir}/review.txt", dir = feature_dir)),
+                        "review": artifact(
+                            format(
+                                "{dir}/review-{iter}.txt",
+                                dir = feature_dir,
+                                iter = loop_iter("extend_until_ready"),
+                            )
+                        ),
                     },
                     result_keys = ["outcome", "review_path"],
                 ),
@@ -194,6 +204,35 @@ wf = workflow(
 	_, err := loader.Load(workflowPath)
 	if err == nil || !contains(err.Error(), `executor is required`) {
 		t.Fatalf("Load() error = %v, want missing executor error", err)
+	}
+}
+
+func TestLoaderRejectsLoopIterOutsideLoopScope(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "bad",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        task(
+            id = "write_poem",
+            prompt = "hello",
+            artifacts = {
+                "poem": artifact(
+                    format("docs/poem-{iter}.md", iter = loop_iter("extend_until_ready"))
+                ),
+            },
+            result_keys = ["topic"],
+        ),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `loop "extend_until_ready" is not active in this scope`) {
+		t.Fatalf("Load() error = %v, want loop scope error", err)
 	}
 }
 

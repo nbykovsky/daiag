@@ -88,6 +88,19 @@ func (j *jsonRefValue) String() string {
 	return fmt.Sprintf("json_ref(step=%q, field=%q)", j.ref.StepID, j.ref.Field)
 }
 
+type loopIterValue struct {
+	ref workflow.LoopIter
+}
+
+func (*loopIterValue) Type() string          { return "loop_iter" }
+func (*loopIterValue) Freeze()               {}
+func (*loopIterValue) Truth() starlark.Bool  { return starlark.True }
+func (*loopIterValue) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: loop_iter") }
+
+func (l *loopIterValue) String() string {
+	return fmt.Sprintf("loop_iter(loop=%q)", l.ref.LoopID)
+}
+
 type promptTemplateValue struct {
 	prompt workflow.Prompt
 }
@@ -104,6 +117,24 @@ func (p *promptTemplateValue) String() string {
 	}
 	sort.Strings(keys)
 	return fmt.Sprintf("template_file(path=%q, vars=%s)", p.prompt.TemplatePath, strings.Join(keys, ","))
+}
+
+type formatValue struct {
+	expr workflow.FormatExpr
+}
+
+func (*formatValue) Type() string          { return "format_expr" }
+func (*formatValue) Freeze()               {}
+func (*formatValue) Truth() starlark.Bool  { return starlark.True }
+func (*formatValue) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: format_expr") }
+
+func (f *formatValue) String() string {
+	keys := make([]string, 0, len(f.expr.Args))
+	for key := range f.expr.Args {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return fmt.Sprintf("format(%q, args=%s)", f.expr.Template, strings.Join(keys, ","))
 }
 
 type predicateValue struct {
@@ -123,10 +154,16 @@ func exprString(expr workflow.ValueExpr) string {
 	switch e := expr.(type) {
 	case workflow.Literal:
 		return fmt.Sprintf("%q", e.Value)
+	case workflow.IntLiteral:
+		return fmt.Sprintf("%d", e.Value)
 	case workflow.PathRef:
 		return fmt.Sprintf("path_ref(%q, %q)", e.StepID, e.ArtifactKey)
 	case workflow.JSONRef:
 		return fmt.Sprintf("json_ref(%q, %q)", e.StepID, e.Field)
+	case workflow.LoopIter:
+		return fmt.Sprintf("loop_iter(%q)", e.LoopID)
+	case workflow.FormatExpr:
+		return fmt.Sprintf("format(%q)", e.Template)
 	default:
 		return fmt.Sprintf("%T", expr)
 	}

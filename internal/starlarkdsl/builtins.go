@@ -2,7 +2,6 @@ package starlarkdsl
 
 import (
 	"fmt"
-	"strings"
 
 	"daiag/internal/workflow"
 
@@ -156,6 +155,14 @@ func (l Loader) builtinJSONRef(_ *starlark.Thread, builtin *starlark.Builtin, ar
 	return &jsonRefValue{ref: workflow.JSONRef{StepID: stepID, Field: field}}, nil
 }
 
+func (l Loader) builtinLoopIter(_ *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var loopID string
+	if err := starlark.UnpackArgs(builtin.Name(), args, kwargs, "loop_id", &loopID); err != nil {
+		return nil, err
+	}
+	return &loopIterValue{ref: workflow.LoopIter{LoopID: loopID}}, nil
+}
+
 func (l Loader) builtinTemplateFile(_ *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path string
 	var varsValue starlark.Value = starlark.None
@@ -201,7 +208,7 @@ func (l Loader) builtinFormat(_ *starlark.Thread, builtin *starlark.Builtin, arg
 		return nil, fmt.Errorf("format: template must be a string")
 	}
 
-	replacements := make(map[string]string, len(kwargs))
+	replacements := make(map[string]workflow.ValueExpr, len(kwargs))
 	for _, item := range kwargs {
 		if len(item) != 2 {
 			return nil, fmt.Errorf("format: invalid keyword argument")
@@ -210,35 +217,19 @@ func (l Loader) builtinFormat(_ *starlark.Thread, builtin *starlark.Builtin, arg
 		if !ok {
 			return nil, fmt.Errorf("format: keyword names must be strings")
 		}
-		value, ok := starlark.AsString(item[1])
-		if !ok {
-			return nil, fmt.Errorf("format: keyword %q must be a string", name)
+		value, err := unpackValueExpr(item[1])
+		if err != nil {
+			return nil, fmt.Errorf("format: keyword %q: %w", name, err)
 		}
 		replacements[name] = value
 	}
 
-	var builder strings.Builder
-	for i := 0; i < len(template); {
-		if template[i] != '{' {
-			builder.WriteByte(template[i])
-			i++
-			continue
-		}
-		end := strings.IndexByte(template[i:], '}')
-		if end <= 1 {
-			return nil, fmt.Errorf("format: malformed placeholder in %q", template)
-		}
-		end += i
-		name := template[i+1 : end]
-		value, ok := replacements[name]
-		if !ok {
-			return nil, fmt.Errorf("format: missing value for %q", name)
-		}
-		builder.WriteString(value)
-		i = end + 1
-	}
-
-	return starlark.String(builder.String()), nil
+	return &formatValue{
+		expr: workflow.FormatExpr{
+			Template: template,
+			Args:     replacements,
+		},
+	}, nil
 }
 
 func (l Loader) builtinEq(_ *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -407,10 +398,12 @@ func unpackStringExpr(value starlark.Value) (workflow.StringExpr, error) {
 	switch v := value.(type) {
 	case starlark.String:
 		return workflow.Literal{Value: v.GoString()}, nil
+	case *formatValue:
+		return v.expr, nil
 	case *pathRefValue:
 		return v.ref, nil
 	default:
-		return nil, fmt.Errorf("expected string or path_ref, got %s", value.Type())
+		return nil, fmt.Errorf("expected string, format, or path_ref, got %s", value.Type())
 	}
 }
 
@@ -418,11 +411,21 @@ func unpackValueExpr(value starlark.Value) (workflow.ValueExpr, error) {
 	switch v := value.(type) {
 	case starlark.String:
 		return workflow.Literal{Value: v.GoString()}, nil
+	case starlark.Int:
+		intValue, ok := v.Int64()
+		if !ok {
+			return nil, fmt.Errorf("expected int in range, got %s", v.String())
+		}
+		return workflow.IntLiteral{Value: int(intValue)}, nil
+	case *formatValue:
+		return v.expr, nil
 	case *pathRefValue:
 		return v.ref, nil
 	case *jsonRefValue:
 		return v.ref, nil
+	case *loopIterValue:
+		return v.ref, nil
 	default:
-		return nil, fmt.Errorf("expected string, path_ref, or json_ref, got %s", value.Type())
+		return nil, fmt.Errorf("expected string, int, format, path_ref, json_ref, or loop_iter, got %s", value.Type())
 	}
 }

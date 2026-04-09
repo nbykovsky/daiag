@@ -70,6 +70,12 @@ func (Literal) valueExpr() {}
 
 func (Literal) stringExpr() {}
 
+type IntLiteral struct {
+	Value int
+}
+
+func (IntLiteral) valueExpr() {}
+
 type PathRef struct {
 	StepID      string
 	ArtifactKey string
@@ -85,6 +91,21 @@ type JSONRef struct {
 }
 
 func (JSONRef) valueExpr() {}
+
+type LoopIter struct {
+	LoopID string
+}
+
+func (LoopIter) valueExpr() {}
+
+type FormatExpr struct {
+	Template string
+	Args     map[string]ValueExpr
+}
+
+func (FormatExpr) valueExpr() {}
+
+func (FormatExpr) stringExpr() {}
 
 type Predicate interface {
 	predicate()
