@@ -41,10 +41,6 @@ func New(stdout, stderr io.Writer, runner Runner) *App {
 	}
 }
 
-func NewDefault(stdout, stderr io.Writer) *App {
-	return New(stdout, stderr, unimplementedRunner{})
-}
-
 func (a *App) Run(ctx context.Context, args []string) int {
 	if len(args) == 0 {
 		a.printUsage(a.stderr)
@@ -129,10 +125,4 @@ func parseKeyValue(raw string) (string, string, error) {
 		return "", "", fmt.Errorf("invalid --param %q, expected key=value", raw)
 	}
 	return key, value, nil
-}
-
-type unimplementedRunner struct{}
-
-func (unimplementedRunner) Run(context.Context, RunConfig) error {
-	return errors.New("workflow execution is not implemented yet")
 }
