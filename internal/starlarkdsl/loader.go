@@ -7,6 +7,7 @@ import (
 	"daiag/internal/workflow"
 
 	"go.starlark.net/starlark"
+	"go.starlark.net/syntax"
 )
 
 type Loader struct {
@@ -26,7 +27,7 @@ func (l Loader) Load(path string) (*workflow.Workflow, error) {
 	}
 
 	thread := &starlark.Thread{Name: "workflow"}
-	globals, err := starlark.ExecFile(thread, absPath, nil, l.predeclared())
+	globals, err := starlark.ExecFileOptions(&syntax.FileOptions{}, thread, absPath, nil, l.predeclared())
 	if err != nil {
 		return nil, fmt.Errorf("load workflow: %w", err)
 	}
