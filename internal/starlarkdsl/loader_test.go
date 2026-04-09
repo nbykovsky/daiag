@@ -112,6 +112,28 @@ wf = workflow(
 	}
 }
 
+func TestLoaderLoadsPoemExampleWorkflow(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd(): %v", err)
+	}
+	repoRoot := filepath.Clean(filepath.Join(wd, "..", ".."))
+	workflowPath := filepath.Join(repoRoot, "examples", "poem", "workflows", "poem.star")
+
+	loader := Loader{
+		Params:  map[string]string{"name": "rain"},
+		BaseDir: repoRoot,
+	}
+
+	wf, err := loader.Load(workflowPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if wf.ID != "poem" {
+		t.Fatalf("workflow ID = %q, want %q", wf.ID, "poem")
+	}
+}
+
 func TestLoaderMissingParam(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")

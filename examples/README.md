@@ -10,6 +10,7 @@ The poem example shows the main v1 workflow pattern:
 - an extender task updates that file
 - a reviewer task decides whether the loop should stop
 - the workflow repeats until the reviewer returns `ready`
+- each review iteration is written to its own file with an iteration suffix
 
 Files:
 
@@ -34,7 +35,9 @@ Prerequisites:
 Expected outputs:
 
 - `examples/poem/docs/features/rain/poem.md`
-- `examples/poem/docs/features/rain/review.txt`
+- `examples/poem/docs/features/rain/review-1.txt`
+- `examples/poem/docs/features/rain/review-2.txt`
+- additional `review-<n>.txt` files if the loop runs longer
 
 The example workflow uses:
 

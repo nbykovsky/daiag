@@ -43,11 +43,21 @@ wf = workflow(
                         "examples/poem/agents/poem-reviewer.md",
                         vars = {
                             "POEM_PATH": path_ref("extend_poem", "poem"),
-                            "REVIEW_PATH": format("{dir}/review.txt", dir = feature_dir),
+                            "REVIEW_PATH": format(
+                                "{dir}/review-{iter}.txt",
+                                dir = feature_dir,
+                                iter = loop_iter("extend_until_ready"),
+                            ),
                         },
                     ),
                     artifacts = {
-                        "review": artifact(format("{dir}/review.txt", dir = feature_dir)),
+                        "review": artifact(
+                            format(
+                                "{dir}/review-{iter}.txt",
+                                dir = feature_dir,
+                                iter = loop_iter("extend_until_ready"),
+                            )
+                        ),
                     },
                     result_keys = ["outcome", "line_count", "review_path"],
                 ),
