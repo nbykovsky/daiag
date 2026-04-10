@@ -20,54 +20,56 @@ Return JSON only.`)
 	writeFile(t, workflowPath, `
 name = param("name")
 feature_dir = format("docs/features/{name}", name = name)
+default_executor = {"cli": "codex", "model": "gpt-5.4"}
+
+poem_path = format("{dir}/poem.md", dir = feature_dir)
+review_path = format(
+    "{dir}/review-{iter}.txt",
+    dir = feature_dir,
+    iter = loop_iter("extend_until_ready"),
+)
+
+write_poem = task(
+    id = "write_poem",
+    prompt = template_file(
+        "agents/writer.md",
+        vars = {
+            "SPEC_PATH": format("{dir}/spec.md", dir = feature_dir),
+            "POEM_PATH": poem_path,
+        },
+    ),
+    artifacts = {
+        "poem": artifact(poem_path),
+    },
+    result_keys = ["topic", "line_count", "poem_path"],
+)
+
+review_poem = task(
+    id = "review_poem",
+    executor = {"cli": "claude", "model": "sonnet"},
+    prompt = template_file(
+        "agents/reviewer.md",
+        vars = {
+            "POEM_PATH": path_ref("write_poem", "poem"),
+            "REVIEW_PATH": review_path,
+        },
+    ),
+    artifacts = {
+        "review": artifact(review_path),
+    },
+    result_keys = ["outcome", "review_path"],
+)
 
 wf = workflow(
     id = "poem",
-    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    default_executor = default_executor,
     steps = [
-        task(
-            id = "write_poem",
-            prompt = template_file(
-                "agents/writer.md",
-                vars = {
-                    "SPEC_PATH": format("{dir}/spec.md", dir = feature_dir),
-                    "POEM_PATH": format("{dir}/poem.md", dir = feature_dir),
-                },
-            ),
-            artifacts = {
-                "poem": artifact(format("{dir}/poem.md", dir = feature_dir)),
-            },
-            result_keys = ["topic", "line_count", "poem_path"],
-        ),
+        write_poem,
         repeat_until(
             id = "extend_until_ready",
             max_iters = 3,
             steps = [
-                task(
-                    id = "review_poem",
-                    executor = {"cli": "claude", "model": "sonnet"},
-                    prompt = template_file(
-                        "agents/reviewer.md",
-                        vars = {
-                            "POEM_PATH": path_ref("write_poem", "poem"),
-                            "REVIEW_PATH": format(
-                                "{dir}/review-{iter}.txt",
-                                dir = feature_dir,
-                                iter = loop_iter("extend_until_ready"),
-                            ),
-                        },
-                    ),
-                    artifacts = {
-                        "review": artifact(
-                            format(
-                                "{dir}/review-{iter}.txt",
-                                dir = feature_dir,
-                                iter = loop_iter("extend_until_ready"),
-                            )
-                        ),
-                    },
-                    result_keys = ["outcome", "review_path"],
-                ),
+                review_poem,
             ],
             until = eq(json_ref("review_poem", "outcome"), "ready"),
         ),
