@@ -7,7 +7,6 @@ import (
 	"daiag/internal/workflow"
 
 	"go.starlark.net/starlark"
-	"go.starlark.net/syntax"
 )
 
 type Loader struct {
@@ -25,9 +24,16 @@ func (l Loader) Load(path string) (*workflow.Workflow, error) {
 	if baseDir == "" {
 		baseDir = filepath.Dir(absPath)
 	}
+	baseDir, err = filepath.Abs(baseDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve workflow base dir: %w", err)
+	}
 
+	session := newLoadSession(l, baseDir)
 	thread := &starlark.Thread{Name: "workflow"}
-	globals, err := starlark.ExecFileOptions(&syntax.FileOptions{}, thread, absPath, nil, l.predeclared())
+	thread.Load = session.loadModule
+
+	globals, err := session.execModule(thread, absPath, true)
 	if err != nil {
 		return nil, fmt.Errorf("load workflow: %w", err)
 	}

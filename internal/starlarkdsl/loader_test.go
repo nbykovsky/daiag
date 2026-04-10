@@ -114,6 +114,51 @@ wf = workflow(
 	}
 }
 
+func TestLoaderLoadsWorkflowWithModules(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, filepath.Join(baseDir, "lib", "common.star"), `
+def poem_result_keys():
+    return ["topic"]
+`)
+	writeFile(t, filepath.Join(baseDir, "lib", "tasks.star"), `
+load("common.star", "poem_result_keys")
+
+default_executor = {"cli": "codex", "model": "gpt-5.4"}
+
+def write_poem_task(poem_path):
+    return task(
+        id = "write_poem",
+        prompt = "hello",
+        artifacts = {"poem": artifact(poem_path)},
+        result_keys = poem_result_keys(),
+    )
+`)
+	writeFile(t, workflowPath, `
+load("lib/tasks.star", "default_executor", "write_poem_task")
+
+wf = workflow(
+    id = "poem",
+    default_executor = default_executor,
+    steps = [
+        write_poem_task("docs/poem.md"),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	wf, err := loader.Load(workflowPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if wf.ID != "poem" {
+		t.Fatalf("workflow ID = %q, want %q", wf.ID, "poem")
+	}
+	if len(wf.Steps) != 1 {
+		t.Fatalf("step count = %d, want 1", len(wf.Steps))
+	}
+}
+
 func TestLoaderLoadsPoemExampleWorkflow(t *testing.T) {
 	wd, err := os.Getwd()
 	if err != nil {
@@ -178,6 +223,87 @@ wf = workflow(
 	_, err := loader.Load(workflowPath)
 	if err == nil || !contains(err.Error(), `unknown step "second"`) {
 		t.Fatalf("Load() error = %v, want forward reference error", err)
+	}
+}
+
+func TestLoaderRejectsLoadOutsideBaseDir(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	parentFile := filepath.Join(filepath.Dir(baseDir), "outside.star")
+	writeFile(t, parentFile, `value = "nope"`)
+	writeFile(t, workflowPath, `
+load("../outside.star", "value")
+
+wf = workflow(
+    id = "bad",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `escapes base directory`) {
+		t.Fatalf("Load() error = %v, want base directory error", err)
+	}
+}
+
+func TestLoaderRejectsLoadCycle(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, filepath.Join(baseDir, "lib", "a.star"), `
+load("b.star", "value_b")
+
+value_a = "a"
+`)
+	writeFile(t, filepath.Join(baseDir, "lib", "b.star"), `
+load("a.star", "value_a")
+
+value_b = "b"
+`)
+	writeFile(t, workflowPath, `
+load("lib/a.star", "value_a")
+
+wf = workflow(
+    id = "bad",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `load cycle detected`) {
+		t.Fatalf("Load() error = %v, want load cycle error", err)
+	}
+}
+
+func TestLoaderRejectsWFInLoadedModule(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, filepath.Join(baseDir, "lib", "helper.star"), `
+wf = workflow(
+    id = "nested",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [],
+)
+
+helper_value = "x"
+`)
+	writeFile(t, workflowPath, `
+load("lib/helper.star", "helper_value")
+
+wf = workflow(
+    id = "bad",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `must not define top-level wf`) {
+		t.Fatalf("Load() error = %v, want loaded wf error", err)
 	}
 }
 
