@@ -214,10 +214,7 @@ func renderPrompt(prompt workflow.Prompt, baseDir string, st *state) (string, er
 		return prompt.Inline, nil
 	}
 
-	path := prompt.TemplatePath
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(baseDir, path)
-	}
+	path := prompt.ResolvedTemplatePath(baseDir)
 
 	data, err := os.ReadFile(path)
 	if err != nil {

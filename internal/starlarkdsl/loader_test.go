@@ -117,6 +117,7 @@ wf = workflow(
 func TestLoaderLoadsWorkflowWithModules(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, filepath.Join(baseDir, "agents", "writer.md"), `Read "${POEM_PATH}".`)
 	writeFile(t, filepath.Join(baseDir, "lib", "common.star"), `
 def poem_result_keys():
     return ["topic"]
@@ -129,7 +130,7 @@ default_executor = {"cli": "codex", "model": "gpt-5.4"}
 def write_poem_task(poem_path):
     return task(
         id = "write_poem",
-        prompt = "hello",
+        prompt = template_file("../agents/writer.md", vars = {"POEM_PATH": poem_path}),
         artifacts = {"poem": artifact(poem_path)},
         result_keys = poem_result_keys(),
     )
@@ -156,6 +157,13 @@ wf = workflow(
 	}
 	if len(wf.Steps) != 1 {
 		t.Fatalf("step count = %d, want 1", len(wf.Steps))
+	}
+	task, ok := wf.Steps[0].(*workflow.Task)
+	if !ok {
+		t.Fatalf("wf.Steps[0] = %T, want *workflow.Task", wf.Steps[0])
+	}
+	if got := task.Prompt.TemplateDir; got != filepath.Join(baseDir, "lib") {
+		t.Fatalf("TemplateDir = %q, want %q", got, filepath.Join(baseDir, "lib"))
 	}
 }
 

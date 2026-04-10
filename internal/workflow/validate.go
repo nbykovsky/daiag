@@ -3,7 +3,6 @@ package workflow
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 )
 
@@ -143,10 +142,7 @@ func (v Validator) validateTask(task *Task, seenTasks map[string]taskInfo, defau
 }
 
 func (v Validator) validatePromptTemplate(prompt Prompt) error {
-	path := prompt.TemplatePath
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(v.BaseDir, path)
-	}
+	path := prompt.ResolvedTemplatePath(v.BaseDir)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read prompt template %q: %w", prompt.TemplatePath, err)

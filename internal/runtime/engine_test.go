@@ -177,6 +177,28 @@ func TestEngineFailsWhenArtifactMissing(t *testing.T) {
 	}
 }
 
+func TestRenderPromptUsesTemplateDir(t *testing.T) {
+	baseDir := t.TempDir()
+	moduleDir := filepath.Join(baseDir, "workflows", "lib")
+	writeFile(t, filepath.Join(baseDir, "workflows", "agents", "writer.md"), `Read "${POEM_PATH}".`)
+
+	prompt := workflow.Prompt{
+		TemplatePath: "../agents/writer.md",
+		TemplateDir:  moduleDir,
+		Vars: map[string]workflow.StringExpr{
+			"POEM_PATH": workflow.Literal{Value: "docs/poem.md"},
+		},
+	}
+
+	rendered, err := renderPrompt(prompt, baseDir, &state{})
+	if err != nil {
+		t.Fatalf("renderPrompt() error = %v", err)
+	}
+	if rendered != `Read "docs/poem.md".` {
+		t.Fatalf("renderPrompt() = %q, want resolved template content", rendered)
+	}
+}
+
 func TestParseResultAcceptsMixedOutput(t *testing.T) {
 	stdout := strings.TrimSpace(`
 The review is complete.

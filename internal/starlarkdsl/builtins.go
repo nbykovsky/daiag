@@ -2,6 +2,7 @@ package starlarkdsl
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"daiag/internal/workflow"
 
@@ -163,7 +164,7 @@ func (l Loader) builtinLoopIter(_ *starlark.Thread, builtin *starlark.Builtin, a
 	return &loopIterValue{ref: workflow.LoopIter{LoopID: loopID}}, nil
 }
 
-func (l Loader) builtinTemplateFile(_ *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (l Loader) builtinTemplateFile(thread *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path string
 	var varsValue starlark.Value = starlark.None
 
@@ -179,9 +180,15 @@ func (l Loader) builtinTemplateFile(_ *starlark.Thread, builtin *starlark.Builti
 		return nil, err
 	}
 
+	modulePath, err := currentCallerModulePath(thread)
+	if err != nil {
+		return nil, err
+	}
+
 	return &promptTemplateValue{
 		prompt: workflow.Prompt{
 			TemplatePath: path,
+			TemplateDir:  filepath.Dir(modulePath),
 			Vars:         vars,
 		},
 	}, nil

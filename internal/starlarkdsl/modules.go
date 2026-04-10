@@ -98,10 +98,18 @@ func (s *loadSession) resolveModulePath(importerPath string, module string) (str
 }
 
 func currentModulePath(thread *starlark.Thread) (string, error) {
-	if thread.CallStackDepth() < 1 {
+	return modulePathAtDepth(thread, 0)
+}
+
+func currentCallerModulePath(thread *starlark.Thread) (string, error) {
+	return modulePathAtDepth(thread, 1)
+}
+
+func modulePathAtDepth(thread *starlark.Thread, depth int) (string, error) {
+	if thread.CallStackDepth() <= depth {
 		return "", fmt.Errorf("cannot resolve load path without an importing module")
 	}
-	return thread.CallFrame(0).Pos.Filename(), nil
+	return thread.CallFrame(depth).Pos.Filename(), nil
 }
 
 func ensureWithinBase(path string, baseDir string) error {

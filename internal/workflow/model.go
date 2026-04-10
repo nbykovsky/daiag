@@ -1,5 +1,7 @@
 package workflow
 
+import "path/filepath"
+
 type Workflow struct {
 	ID              string
 	DefaultExecutor *ExecutorConfig
@@ -46,11 +48,25 @@ func (r *RepeatUntil) NodeID() string {
 type Prompt struct {
 	Inline       string
 	TemplatePath string
+	TemplateDir  string
 	Vars         map[string]StringExpr
 }
 
 func (p Prompt) IsInline() bool {
 	return p.TemplatePath == ""
+}
+
+func (p Prompt) ResolvedTemplatePath(baseDir string) string {
+	if p.TemplatePath == "" {
+		return ""
+	}
+	if filepath.IsAbs(p.TemplatePath) {
+		return p.TemplatePath
+	}
+	if p.TemplateDir != "" {
+		return filepath.Join(p.TemplateDir, p.TemplatePath)
+	}
+	return filepath.Join(baseDir, p.TemplatePath)
 }
 
 type ValueExpr interface {

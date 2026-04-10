@@ -13,7 +13,7 @@ review_path = format(
 write_poem = task(
     id = "write_poem",
     prompt = template_file(
-        "examples/poem/agents/poem-writer.md",
+        "../agents/poem-writer.md",
         vars = {
             "SPEC_PATH": spec_path,
             "POEM_PATH": poem_path,
@@ -28,7 +28,7 @@ write_poem = task(
 extend_poem = task(
     id = "extend_poem",
     prompt = template_file(
-        "examples/poem/agents/poem-extender.md",
+        "../agents/poem-extender.md",
         vars = {
             "POEM_PATH": path_ref("write_poem", "poem"),
         },
@@ -43,7 +43,7 @@ review_poem = task(
     id = "review_poem",
     executor = {"cli": "claude", "model": "sonnet"},
     prompt = template_file(
-        "examples/poem/agents/poem-reviewer.md",
+        "../agents/poem-reviewer.md",
         vars = {
             "POEM_PATH": path_ref("extend_poem", "poem"),
             "REVIEW_PATH": review_path,
