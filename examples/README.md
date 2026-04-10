@@ -15,6 +15,9 @@ The poem example shows the main v1 workflow pattern:
 Files:
 
 - workflow: `examples/poem/workflows/poem.star`
+- workflow helpers:
+  - `examples/poem/workflows/lib/paths.star`
+  - `examples/poem/workflows/lib/tasks.star`
 - prompts:
   - `examples/poem/agents/poem-writer.md`
   - `examples/poem/agents/poem-extender.md`
