@@ -54,6 +54,12 @@ The codebase should stay small, explicit, and easy to change.
 - Use Starlark as the workflow DSL for v1.
 - Treat workflow tasks as explicit orchestration of AI agents driven by prompt
   files and backend executors such as Codex and Claude.
+- When the user asks to create or modify a workflow task, read
+  `.daiag/skills/workflow-task-author/SKILL.md` first and follow it before
+  exploring other workflow, example, or implementation files.
+- For workflow task authoring requests, ask the skill-required clarifying
+  questions before inspecting existing workflow files unless the user explicitly
+  asks for repository exploration or provides the exact target files to edit.
 - Keep task semantics explicit: prompt, executor, artifacts, and result keys.
 - Treat artifact paths as declared outputs, not a sandbox.
 - Resolve downstream dependencies through explicit references such as path refs and JSON refs.
