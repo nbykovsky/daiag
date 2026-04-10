@@ -2,7 +2,12 @@
 
 ## Purpose
 
-This repository hosts a Go CLI tool for executing Starlark-defined workflows.
+This repository hosts `daiag`, a Go CLI tool for orchestrating AI agents through
+Starlark-defined workflows.
+Workflows coordinate prompt files, executor selection, artifact paths, and
+review loops over real workspace files.
+Use `examples/poem/workflows/poem.star` as the main v1 workflow example when
+you need to understand the intended shape of the DSL or runner behavior.
 The codebase should stay small, explicit, and easy to change.
 
 ## General Principles
@@ -47,11 +52,16 @@ The codebase should stay small, explicit, and easy to change.
 ## Workflow Runner Conventions
 
 - Use Starlark as the workflow DSL for v1.
+- Treat workflow tasks as explicit orchestration of AI agents driven by prompt
+  files and backend executors such as Codex and Claude.
 - Keep task semantics explicit: prompt, executor, artifacts, and result keys.
 - Treat artifact paths as declared outputs, not a sandbox.
 - Resolve downstream dependencies through explicit references such as path refs and JSON refs.
 - Keep execution sequential in v1.
 - Prefer path-driven prompts over prompts that derive paths from names.
+- When in doubt about workflow structure, follow
+  `examples/poem/workflows/poem.star` and its helper files before introducing a
+  new pattern.
 
 ## Testing
 
