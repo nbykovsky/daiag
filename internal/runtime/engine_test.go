@@ -177,6 +177,33 @@ func TestEngineFailsWhenArtifactMissing(t *testing.T) {
 	}
 }
 
+func TestParseResultAcceptsMixedOutput(t *testing.T) {
+	stdout := strings.TrimSpace(`
+The review is complete.
+
+` + "```json" + `
+{"outcome":"ready","line_count":6,"review_path":"docs/features/rain/review-2.txt"}
+` + "```")
+
+	result, err := parseResult(stdout, []string{"outcome", "line_count", "review_path"})
+	if err != nil {
+		t.Fatalf("parseResult() error = %v", err)
+	}
+	if got := result["outcome"]; got != "ready" {
+		t.Fatalf("result[outcome] = %#v, want %q", got, "ready")
+	}
+	if got := result["review_path"]; got != "docs/features/rain/review-2.txt" {
+		t.Fatalf("result[review_path] = %#v, want review path", got)
+	}
+}
+
+func TestParseResultRejectsOutputWithoutJSONObject(t *testing.T) {
+	_, err := parseResult("The task completed successfully.", []string{"outcome"})
+	if err == nil || !strings.Contains(err.Error(), "no JSON object found") {
+		t.Fatalf("parseResult() error = %v, want no JSON object error", err)
+	}
+}
+
 type fakeExecutor struct {
 	t         *testing.T
 	baseDir   string

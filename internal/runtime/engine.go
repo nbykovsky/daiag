@@ -249,9 +249,22 @@ func renderPrompt(prompt workflow.Prompt, baseDir string, st *state) (string, er
 
 func parseResult(stdout string, requiredKeys []string) (map[string]any, error) {
 	var result map[string]any
-	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+	if err := json.Unmarshal([]byte(stdout), &result); err == nil {
+		return validateResult(result, requiredKeys)
+	}
+
+	result, ok, err := extractJSONObject(stdout)
+	if err != nil {
 		return nil, fmt.Errorf("parse task result: %w", err)
 	}
+	if !ok {
+		return nil, fmt.Errorf("parse task result: no JSON object found in executor output")
+	}
+
+	return validateResult(result, requiredKeys)
+}
+
+func validateResult(result map[string]any, requiredKeys []string) (map[string]any, error) {
 	if result == nil {
 		return nil, fmt.Errorf("task result must be a JSON object")
 	}
@@ -261,6 +274,27 @@ func parseResult(stdout string, requiredKeys []string) (map[string]any, error) {
 		}
 	}
 	return result, nil
+}
+
+func extractJSONObject(stdout string) (map[string]any, bool, error) {
+	for i := 0; i < len(stdout); i++ {
+		if stdout[i] != '{' {
+			continue
+		}
+
+		decoder := json.NewDecoder(strings.NewReader(stdout[i:]))
+		var result map[string]any
+		if err := decoder.Decode(&result); err != nil {
+			continue
+		}
+		if result == nil {
+			continue
+		}
+
+		return result, true, nil
+	}
+
+	return nil, false, nil
 }
 
 func ensureFileExists(workdir, path string) error {
