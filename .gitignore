@@ -6,7 +6,6 @@
 .vscode/
 
 # Go
-/daiag
 bin/
 dist/
 cover.out
