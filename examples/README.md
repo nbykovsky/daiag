@@ -47,6 +47,31 @@ The example workflow uses:
 - `codex` with model `gpt-5.4` for writing and extending
 - `claude` with model `sonnet` for review
 
+## New Poem
+
+The new poem example shows a single reusable task loaded from `.daiag/tasks`.
+
+Files:
+
+- example overview: `examples/new_poem/README.md`
+- workflow: `examples/new_poem/workflows/poem.star`
+- reusable task: `.daiag/tasks/write_topic_poem.star`
+- reusable prompt: `.daiag/tasks/write_topic_poem.md`
+
+Run it from the repository root:
+
+```sh
+go run ./cmd/daiag run --workflow examples/new_poem/workflows/poem.star --param topic=starlight --param line_count=6
+```
+
+Prerequisites:
+
+- `codex` CLI must be installed and authenticated
+
+Expected output:
+
+- `examples/new_poem/poem.md`
+
 ## Development Workflow
 
 The development workflow example is a research-oriented sketch for a much larger
