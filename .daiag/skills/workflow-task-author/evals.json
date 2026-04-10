@@ -1,0 +1,20 @@
+{
+  "skill_name": "workflow-task-author",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Create a workflow task that reads a spec file and writes a draft document. The task should be called 'write_draft' and it should return the path to the draft and a line count.",
+      "expected_output": "Two files: write_draft.star and write_draft.md that follow the task conventions"
+    },
+    {
+      "id": 2,
+      "prompt": "I need a task that reviews some generated content and returns a pass/fail status. Call it 'review_content'. It should read the content file, review it against criteria, and return a JSON with 'verdict' (passed/failed) and 'notes'.",
+      "expected_output": "review_content.star and review_content.md files following conventions"
+    },
+    {
+      "id": 3,
+      "prompt": "Create a 'parse_data' task that reads a raw data file, parses it, and writes structured output. Should return the output file path and a record count.",
+      "expected_output": "parse_data.star and parse_data.md files with appropriate artifacts and result keys"
+    }
+  ]
+}
