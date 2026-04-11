@@ -37,7 +37,7 @@ The file passed to the CLI is the entry workflow file.
 Example:
 
 ```sh
-daiag run --workflow examples/poem/workflows/poem.star --param name=rain
+daiag run --workflow examples/development-workflow/workflows/feature-development.star --input name=indicators
 ```
 
 The entry file must define a top-level variable named `wf`.
@@ -47,6 +47,7 @@ Rules:
 - `wf` must exist in the entry file
 - `wf` must be created by `workflow(...)`
 - loaded helper modules must not define top-level `wf`
+- files referenced by `subworkflow(...)` must define top-level `wf`
 
 ## Language Model
 
@@ -63,8 +64,8 @@ This means workflows may use normal Starlark features such as:
 Example:
 
 ```python
-name = param("name")
-feature_dir = format("examples/poem/docs/features/{name}", name = name)
+name = input("name")
+feature_dir = format("examples/development-workflow/docs/features/{name}", name = name)
 
 write_poem = task(
     id = "write_poem",
@@ -81,10 +82,12 @@ The workflow DSL provides these builtins:
 - `workflow(...)`
 - `task(...)`
 - `repeat_until(...)`
+- `subworkflow(...)`
 - `artifact(path)`
 - `path_ref(step_id, artifact_key)`
 - `json_ref(step_id, field)`
 - `loop_iter(loop_id)`
+- `input(name)`
 - `template_file(path, vars = {...})`
 - `param(name)`
 - `format(template, ...)`
@@ -101,22 +104,40 @@ Required fields:
 
 Optional fields:
 
+- `inputs`
 - `default_executor`
+- `output_artifacts`
+- `output_results`
 
 Example:
 
 ```python
 wf = workflow(
     id = "poem",
+    inputs = ["name"],
     default_executor = {"cli": "codex", "model": "gpt-5.4"},
     steps = [],
+    output_artifacts = {},
+    output_results = {},
 )
 ```
 
 Rules:
 
 - `id` must be non-empty
-- `steps` must be a list of `task(...)` and `repeat_until(...)` values
+- `inputs` must be a list of unique non-empty strings when provided
+- `steps` must be a list of `task(...)`, `repeat_until(...)`, and `subworkflow(...)` values
+- `output_artifacts` maps public artifact names to string expressions
+- `output_results` maps public result names to value expressions
+- output expressions may reference declared `input(...)` values and steps visible by the end of the workflow
+
+Workflow outputs are the only child workflow values visible to a parent
+workflow. A parent reads them through the subworkflow step ID:
+
+```python
+path_ref("spec_refinement", "spec")
+json_ref("spec_refinement", "outcome")
+```
 
 ## `task(...)`
 
@@ -190,7 +211,7 @@ Rules:
 
 - `id` must be non-empty
 - `max_iters` must be at least `1`
-- `steps` must be a list of `task(...)` and `repeat_until(...)`
+- `steps` must be a list of `task(...)`, `repeat_until(...)`, and `subworkflow(...)`
 - `until` must be a supported predicate
 
 Semantics:
@@ -199,6 +220,46 @@ Semantics:
 - after the body finishes, the predicate is evaluated
 - if the predicate is true, the loop stops
 - if the predicate never becomes true, execution fails after `max_iters`
+
+## `subworkflow(...)`
+
+Runs another workflow file as one parent workflow step.
+
+Required fields:
+
+- `id`
+- `workflow`
+
+Optional fields:
+
+- `inputs`
+
+Example:
+
+```python
+subworkflow(
+    id = "spec_refinement",
+    workflow = "spec-refinement.star",
+    inputs = {
+        "feature_dir": feature_dir,
+        "prd_path": format("{dir}/prd.md", dir = feature_dir),
+        "spec_path": format("{dir}/spec.md", dir = feature_dir),
+    },
+)
+```
+
+Rules:
+
+- `id` must be non-empty
+- `workflow` must be a local `.star` workflow file under the workflow base directory
+- relative workflow paths resolve from the Starlark module where `subworkflow(...)` appears
+- `inputs` defaults to `{}`
+- every child workflow input must be bound by the parent
+- parent bindings may use literals, `input(...)`, `format(...)`, `path_ref(...)`, `json_ref(...)`, and `loop_iter(...)`
+- parent workflows can reference only the child workflow's declared `output_artifacts` and `output_results`
+- child workflows cannot reference parent step IDs directly
+- parent and child workflows have separate step ID scopes
+- `param(...)` is not allowed in child workflow files or helper modules loaded by child workflows
 
 ## `artifact(path)`
 
@@ -217,10 +278,11 @@ Supported string expression types:
 - string literal
 - `format(...)`
 - `path_ref(...)`
+- `input(...)`
 
 ## `path_ref(step_id, artifact_key)`
 
-Refers to an artifact path produced by an earlier task.
+Refers to an artifact path produced by an earlier task or declared by an earlier subworkflow.
 
 Example:
 
@@ -230,13 +292,14 @@ path_ref("write_poem", "poem")
 
 Rules:
 
-- `step_id` must refer to an earlier step
-- the referenced step must declare the artifact key
+- `step_id` must refer to an earlier task or subworkflow step
+- a task reference must name a declared artifact key
+- a subworkflow reference must name a key from the child workflow's `output_artifacts`
 - forward references are not allowed
 
 ## `json_ref(step_id, field)`
 
-Refers to a JSON result field produced by an earlier task.
+Refers to a JSON result field produced by an earlier task or declared by an earlier subworkflow.
 
 Example:
 
@@ -246,8 +309,9 @@ json_ref("review_poem", "outcome")
 
 Rules:
 
-- `step_id` must refer to an earlier step
-- the referenced step must declare the result key in `result_keys`
+- `step_id` must refer to an earlier task or subworkflow step
+- a task reference must name a key from `result_keys`
+- a subworkflow reference must name a key from the child workflow's `output_results`
 - forward references are not allowed
 
 ## `loop_iter(loop_id)`
@@ -314,9 +378,39 @@ Example:
 - prompt path: `../../agents/poem-writer.md`
 - resolved prompt file: `examples/poem/agents/poem-writer.md`
 
+## `input(name)`
+
+Reads a workflow input at runtime.
+
+Example:
+
+```python
+feature_name = input("name")
+
+wf = workflow(
+    id = "feature-development",
+    inputs = ["name"],
+    steps = [],
+)
+```
+
+CLI:
+
+```sh
+daiag run --workflow examples/development-workflow/workflows/feature-development.star --input name=indicators
+```
+
+Rules:
+
+- `name` must refer to a string declared in `workflow(inputs = [...])`
+- top-level workflow inputs are supplied by the CLI
+- child workflow inputs are supplied by the parent `subworkflow(inputs = {...})` map
+- `input(...)` may be used anywhere a string expression or value expression is accepted
+- when used in a string context, the runtime value is stringified
+
 ## `param(name)`
 
-Reads a workflow parameter supplied on the CLI.
+Reads a compatibility workflow parameter supplied on the CLI.
 
 Example:
 
@@ -334,11 +428,14 @@ Rules:
 
 - the named parameter must be supplied
 - missing parameters are a workflow-load error
+- top-level `--input key=value` and `--param key=value` values are merged
+- conflicting values for the same key are rejected
+- `param(...)` is not allowed in subworkflow files or their loaded helper modules
 
 Current implementation note:
 
-- `param(...)` works in both entry files and loaded modules
-- for readability, it is still recommended to read parameters in the entry file and pass values into helper functions
+- `param(...)` remains for existing top-level workflows
+- new workflows should prefer `workflow(inputs = [...])` and `input(...)`
 
 ## `format(template, ...)`
 
@@ -358,6 +455,7 @@ Supported argument value types:
 - `path_ref(...)`
 - `json_ref(...)`
 - `loop_iter(...)`
+- `input(...)`
 
 Rules:
 
@@ -453,6 +551,7 @@ Loaded modules may export:
 - helper functions
 - prebuilt `task(...)` values
 - prebuilt `repeat_until(...)` values
+- prebuilt `subworkflow(...)` values
 
 Recommendation:
 
@@ -460,16 +559,18 @@ Recommendation:
 
 Reason:
 
-- step IDs must remain globally unique
+- step IDs must remain unique within the workflow scope where the helper is used
 
 ## Step ID Rules
 
-Step IDs are global across the entire workflow, including nested loops.
+Step IDs are unique inside one workflow scope, including nested loops.
 
 This means:
 
 - two tasks may not share the same `id`
 - a loop may not reuse a task ID from elsewhere in the workflow
+- a subworkflow ID may not reuse a task or loop ID in the same parent workflow
+- parent and child workflows may use the same internal task IDs
 
 ## Artifact Path Rules
 
@@ -504,6 +605,8 @@ Workflow loading and validation reject the following cases.
 ### Workflow Structure Errors
 
 - empty workflow ID
+- duplicate or empty workflow input
+- declared workflow input missing from CLI bindings
 - nil step
 - empty step ID
 - duplicate step ID
@@ -528,11 +631,23 @@ Workflow loading and validation reject the following cases.
 
 ### Reference Errors
 
+- `input(...)` not declared by the current workflow
 - `path_ref(...)` to unknown step
 - `path_ref(...)` to undeclared artifact key
 - `json_ref(...)` to unknown step
 - `json_ref(...)` to undeclared result key
 - `loop_iter(...)` outside the active loop scope
+
+### Subworkflow Errors
+
+- subworkflow path missing, invalid, outside the workflow base directory, or not ending in `.star`
+- subworkflow file missing top-level `wf`
+- subworkflow file cycle
+- `param(...)` used in a subworkflow file or one of its helper modules
+- missing child input binding
+- unknown child input binding
+- parent reference to a child internal task
+- child reference to a parent task
 
 ### Loop Errors
 
@@ -546,7 +661,7 @@ Workflow loading and validation reject the following cases.
 The current CLI supports:
 
 ```sh
-daiag run --workflow <path> [--param key=value] [--workdir <path>] [--verbose]
+daiag run --workflow <path> [--input key=value] [--param key=value] [--workdir <path>] [--verbose]
 ```
 
 There is no dedicated `daiag validate` command today.
@@ -556,14 +671,14 @@ There is no dedicated `daiag validate` command today.
 The current validation path is:
 
 ```sh
-go run ./cmd/daiag run --workflow examples/poem/workflows/poem.star --param name=rain
+go run ./cmd/daiag run --workflow examples/development-workflow/workflows/feature-development.star --input name=indicators
 ```
 
 or, after building:
 
 ```sh
 go build ./cmd/daiag
-./daiag run --workflow examples/poem/workflows/poem.star --param name=rain
+./daiag run --workflow examples/development-workflow/workflows/feature-development.star --input name=indicators
 ```
 
 Behavior:
@@ -585,40 +700,62 @@ So today:
 
 ## Minimal Correct Example
 
-```python
-load("lib/paths.star", "feature_paths")
-load("lib/tasks.star", "default_executor", "write_poem_task", "extend_poem_task", "review_poem_task")
+Parent workflow:
 
-name = param("name")
-paths = feature_paths(name)
+```python
+name = input("name")
+feature_dir = format("examples/development-workflow/docs/features/{name}", name = name)
 
 wf = workflow(
-    id = "poem",
-    default_executor = default_executor,
+    id = "feature-development",
+    inputs = ["name"],
     steps = [
-        write_poem_task(paths),
-        repeat_until(
-            id = "extend_until_ready",
-            max_iters = 4,
-            steps = [
-                extend_poem_task(paths),
-                review_poem_task(paths),
-            ],
-            until = eq(json_ref("review_poem", "outcome"), "ready"),
+        subworkflow(
+            id = "spec_refinement",
+            workflow = "spec-refinement.star",
+            inputs = {
+                "feature_dir": feature_dir,
+                "prd_path": format("{dir}/prd.md", dir = feature_dir),
+                "spec_path": format("{dir}/spec.md", dir = feature_dir),
+            },
         ),
+        # Later parent steps can read declared child outputs.
+        # path_ref("spec_refinement", "spec")
     ],
+)
+```
+
+Child workflow:
+
+```python
+feature_dir = input("feature_dir")
+prd_path = input("prd_path")
+spec_path = input("spec_path")
+
+wf = workflow(
+    id = "spec-refinement",
+    inputs = ["feature_dir", "prd_path", "spec_path"],
+    steps = [
+        # tasks that write and review the spec
+    ],
+    output_artifacts = {
+        "spec": spec_path,
+    },
+    output_results = {},
 )
 ```
 
 ## Authoring Recommendations
 
-- keep `param(...)` near the entry file top level
+- prefer `workflow(inputs = [...])` and `input(...)` for new workflows
+- keep `param(...)` only for compatibility with existing top-level workflows
 - use `load(...)` for path helpers and task constructors
 - keep prompt templates in separate Markdown files
 - use `path_ref(...)` for file handoff between tasks
 - use `json_ref(...)` only for control flow and metadata
 - use `loop_iter(...)` only when you need per-iteration file names
 - prefer helper functions over copying large task blocks
+- use subworkflows when a stage needs its own input/output contract and internal step ID scope
 
 ## Related Documents
 

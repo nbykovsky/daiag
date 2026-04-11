@@ -189,6 +189,35 @@ func TestLoaderLoadsPoemExampleWorkflow(t *testing.T) {
 	}
 }
 
+func TestLoaderLoadsDevelopmentWorkflowExample(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd(): %v", err)
+	}
+	repoRoot := filepath.Clean(filepath.Join(wd, "..", ".."))
+	workflowPath := filepath.Join(repoRoot, "examples", "development-workflow", "workflows", "feature-development.star")
+
+	loader := Loader{
+		Inputs:  map[string]string{"name": "indicators"},
+		BaseDir: repoRoot,
+	}
+
+	wf, err := loader.Load(workflowPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if wf.ID != "feature-development" {
+		t.Fatalf("workflow ID = %q, want %q", wf.ID, "feature-development")
+	}
+	sub, ok := wf.Steps[0].(*workflow.Subworkflow)
+	if !ok {
+		t.Fatalf("wf.Steps[0] = %T, want *workflow.Subworkflow", wf.Steps[0])
+	}
+	if sub.Workflow == nil || sub.Workflow.ID != "spec-refinement" {
+		t.Fatalf("subworkflow child = %#v, want spec-refinement", sub.Workflow)
+	}
+}
+
 func TestLoaderMissingParam(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")

@@ -1,92 +1,28 @@
-name = param("name")
+name = input("name")
 feature_dir = format("examples/development-workflow/docs/features/{name}", name = name)
+prd_path = format("{dir}/prd.md", dir = feature_dir)
+spec_path = format("{dir}/spec.md", dir = feature_dir)
 
 wf = workflow(
     id = "feature-development",
+    inputs = ["name"],
     default_executor = {"cli": "claude", "model": "sonnet"},
     steps = [
-        task(
-            id = "write_spec",
-            prompt = template_file(
-                "../agents/spec-writer.md",
-                vars = {
-                    "FEATURE_DIR": feature_dir,
-                    "PRD_PATH": format("{dir}/prd.md", dir = feature_dir),
-                    "ARCH_PATH": "docs/architecture.md",
-                    "SPEC_PATH": format("{dir}/spec.md", dir = feature_dir),
-                    "STATUS_PATH": format("{dir}/spec_write_status.md", dir = feature_dir),
-                },
-            ),
-            artifacts = {
-                "spec": artifact(format("{dir}/spec.md", dir = feature_dir)),
-                "spec_write_status": artifact(format("{dir}/spec_write_status.md", dir = feature_dir)),
+        subworkflow(
+            id = "spec_refinement",
+            workflow = "spec-refinement.star",
+            inputs = {
+                "feature_dir": feature_dir,
+                "prd_path": prd_path,
+                "spec_path": spec_path,
             },
-            result_keys = ["outcome", "spec_path", "status_path"],
-        ),
-        repeat_until(
-            id = "refine_spec",
-            max_iters = 3,
-            steps = [
-                task(
-                    id = "review_spec",
-                    prompt = template_file(
-                        "../agents/requirements-reviewer.md",
-                        vars = {
-                            "SPEC_PATH": path_ref("write_spec", "spec"),
-                            "REVIEW_PATH": format(
-                                "{dir}/spec_review_{iter}.md",
-                                dir = feature_dir,
-                                iter = loop_iter("refine_spec"),
-                            ),
-                        },
-                    ),
-                    artifacts = {
-                        "spec": artifact(path_ref("write_spec", "spec")),
-                        "review_report": artifact(
-                            format(
-                                "{dir}/spec_review_{iter}.md",
-                                dir = feature_dir,
-                                iter = loop_iter("refine_spec"),
-                            )
-                        ),
-                    },
-                    result_keys = ["outcome", "spec_path", "review_path"],
-                ),
-                task(
-                    id = "address_review",
-                    prompt = template_file(
-                        "../agents/review-addresser.md",
-                        vars = {
-                            "SPEC_PATH": path_ref("review_spec", "spec"),
-                            "REVIEW_PATH": path_ref("review_spec", "review_report"),
-                            "STATUS_PATH": format(
-                                "{dir}/spec_refine_status_{iter}.md",
-                                dir = feature_dir,
-                                iter = loop_iter("refine_spec"),
-                            ),
-                        },
-                    ),
-                    artifacts = {
-                        "spec": artifact(path_ref("review_spec", "spec")),
-                        "spec_refine_status": artifact(
-                            format(
-                                "{dir}/spec_refine_status_{iter}.md",
-                                dir = feature_dir,
-                                iter = loop_iter("refine_spec"),
-                            )
-                        ),
-                    },
-                    result_keys = ["loop_outcome", "spec_path", "status_path"],
-                ),
-            ],
-            until = eq(json_ref("address_review", "loop_outcome"), "stop"),
         ),
         task(
             id = "write_qa_tests",
             prompt = template_file(
                 "../agents/qa-test-writer.md",
                 vars = {
-                    "SPEC_PATH": path_ref("address_review", "spec"),
+                    "SPEC_PATH": path_ref("spec_refinement", "spec"),
                     "QA_TESTS_PATH": format("{dir}/qa_tests.md", dir = feature_dir),
                     "STATUS_PATH": format("{dir}/qa_test_write_status.md", dir = feature_dir),
                 },
@@ -103,7 +39,7 @@ wf = workflow(
                 "../agents/spec-task-splitter.md",
                 vars = {
                     "FEATURE_DIR": feature_dir,
-                    "SPEC_PATH": path_ref("address_review", "spec"),
+                    "SPEC_PATH": path_ref("spec_refinement", "spec"),
                     "TASK_INDEX_PATH": format("{dir}/tasks.md", dir = feature_dir),
                     "STATUS_PATH": format("{dir}/task_split_status.md", dir = feature_dir),
                 },
@@ -136,7 +72,7 @@ wf = workflow(
                 "../agents/code-refiner.md",
                 vars = {
                     "FEATURE_DIR": feature_dir,
-                    "SPEC_PATH": path_ref("address_review", "spec"),
+                    "SPEC_PATH": path_ref("spec_refinement", "spec"),
                     "STATUS_PATH": format("{dir}/code_review_status.md", dir = feature_dir),
                 },
             ),
@@ -165,7 +101,7 @@ wf = workflow(
             prompt = template_file(
                 "../agents/docs-updater.md",
                 vars = {
-                    "SPEC_PATH": path_ref("address_review", "spec"),
+                    "SPEC_PATH": path_ref("spec_refinement", "spec"),
                     "STATUS_PATH": format("{dir}/docs_update_status.md", dir = feature_dir),
                 },
             ),
