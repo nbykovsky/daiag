@@ -684,6 +684,12 @@ Input set semantics:
 - `input("x")` validation checks `declaredInputs`, so a workflow cannot use an
   undeclared input even if a value named `x` happens to be available.
 
+For child workflow scopes, `availableInputs == declaredInputs` by construction,
+so the subset check is intentionally a no-op. Parent binding completeness for a
+child is enforced in the `Subworkflow` node validation step that checks the
+parent `inputs` map against the child's declared inputs. Keeping
+`availableInputs` in the child scope is only for uniform scope handling.
+
 `templateBaseDir` is the fallback base directory for prompt templates whose
 `Prompt.TemplateDir` is empty. For a child workflow, use the child workflow
 file's directory, not the parent workflow file's directory. Prompt values
@@ -997,6 +1003,8 @@ Add runtime tests for:
 - child output expressions may pass through declared `input(...)` values
 - child runtime state does not leak internal task IDs to parent
 - child failure is reported with subworkflow context
+- nested child failure is reported with recursive subworkflow context such as
+  `spec.refine.inner_task`
 
 Add CLI-level tests for:
 
@@ -1014,7 +1022,11 @@ Add CLI-level tests for:
    validation.
 5. Add runtime `InputRef` resolution and CLI `--input key=value` together; keep
    `--param key=value` as a compatibility alias.
-6. Add child workflow loading and subworkflow cycle detection.
+6. Add child workflow loading and subworkflow cycle detection. This step also
+   adds the `Subworkflow` case in workflow validation, because child workflows
+   must be loaded before the validator can validate the child scope, check
+   parent input bindings, and register the subworkflow's public output keys in
+   the parent scope.
 7. Add subworkflow execution and output registration.
 8. Add logging events.
 9. Update `docs/workflow-language.md` after implementation lands.
