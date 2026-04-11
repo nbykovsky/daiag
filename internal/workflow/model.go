@@ -48,6 +48,20 @@ func (r *RepeatUntil) NodeID() string {
 	return r.ID
 }
 
+type Subworkflow struct {
+	ID           string
+	WorkflowPath string
+	ModuleDir    string
+	Workflow     *Workflow
+	Inputs       map[string]ValueExpr
+}
+
+func (*Subworkflow) node() {}
+
+func (s *Subworkflow) NodeID() string {
+	return s.ID
+}
+
 type Prompt struct {
 	Inline       string
 	TemplatePath string

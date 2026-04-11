@@ -97,6 +97,36 @@ func (s *loadSession) resolveModulePath(importerPath string, module string) (str
 	return absPath, nil
 }
 
+func resolveSubworkflowPath(moduleDir string, workflowPath string, baseDir string) (string, error) {
+	if workflowPath == "" {
+		return "", fmt.Errorf("workflow path must not be empty")
+	}
+	if !strings.HasSuffix(workflowPath, ".star") {
+		return "", fmt.Errorf("workflow path %q must end with .star", workflowPath)
+	}
+	if strings.Contains(workflowPath, "://") {
+		return "", fmt.Errorf("unsupported workflow path %q", workflowPath)
+	}
+
+	path := workflowPath
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(moduleDir, path)
+	}
+
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve workflow path %q: %w", workflowPath, err)
+	}
+	if err := ensureWithinBase(absPath, baseDir); err != nil {
+		return "", fmt.Errorf("resolve workflow path %q: %w", workflowPath, err)
+	}
+	if _, err := os.Stat(absPath); err != nil {
+		return "", fmt.Errorf("stat %q: %w", absPath, err)
+	}
+
+	return absPath, nil
+}
+
 func currentModulePath(thread *starlark.Thread) (string, error) {
 	return modulePathAtDepth(thread, 0)
 }

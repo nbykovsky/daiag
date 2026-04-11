@@ -49,6 +49,19 @@ func (r *repeatUntilValue) String() string {
 	return fmt.Sprintf("repeat_until(id=%q)", r.loop.ID)
 }
 
+type subworkflowValue struct {
+	subworkflow *workflow.Subworkflow
+}
+
+func (*subworkflowValue) Type() string          { return "subworkflow" }
+func (*subworkflowValue) Freeze()               {}
+func (*subworkflowValue) Truth() starlark.Bool  { return starlark.True }
+func (*subworkflowValue) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: subworkflow") }
+
+func (s *subworkflowValue) String() string {
+	return fmt.Sprintf("subworkflow(id=%q, workflow=%q)", s.subworkflow.ID, s.subworkflow.WorkflowPath)
+}
+
 type artifactValue struct {
 	expr workflow.StringExpr
 }

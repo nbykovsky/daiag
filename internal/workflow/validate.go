@@ -103,6 +103,11 @@ func (v Validator) validateSteps(steps []Node, seenNodes map[string]nodeInfo, al
 				return nil, fmt.Errorf("repeat_until %q: %w", n.ID, err)
 			}
 			current = loopSeen
+		case *Subworkflow:
+			if n.Workflow == nil {
+				return nil, fmt.Errorf("subworkflow %q: workflow is not loaded", n.ID)
+			}
+			current[n.ID] = nodeInfo{}
 		default:
 			return nil, fmt.Errorf("unsupported node type %T", node)
 		}

@@ -143,6 +143,42 @@ func (l Loader) builtinRepeatUntil(_ *starlark.Thread, builtin *starlark.Builtin
 	}, nil
 }
 
+func (l Loader) builtinSubworkflow(thread *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var id string
+	var workflowPath string
+	var inputsValue starlark.Value = starlark.None
+
+	if err := starlark.UnpackArgs(builtin.Name(), args, kwargs,
+		"id", &id,
+		"workflow", &workflowPath,
+		"inputs?", &inputsValue,
+	); err != nil {
+		return nil, err
+	}
+
+	inputs, err := unpackOptionalValueExprMap(inputsValue, "inputs")
+	if err != nil {
+		return nil, err
+	}
+	if inputs == nil {
+		inputs = map[string]workflow.ValueExpr{}
+	}
+
+	modulePath, err := currentCallerModulePath(thread)
+	if err != nil {
+		return nil, err
+	}
+
+	return &subworkflowValue{
+		subworkflow: &workflow.Subworkflow{
+			ID:           id,
+			WorkflowPath: workflowPath,
+			ModuleDir:    filepath.Dir(modulePath),
+			Inputs:       inputs,
+		},
+	}, nil
+}
+
 func (l Loader) builtinArtifact(_ *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var raw starlark.Value
 	if err := starlark.UnpackArgs(builtin.Name(), args, kwargs, "path", &raw); err != nil {
@@ -230,6 +266,9 @@ func (l Loader) builtinParam(_ *starlark.Thread, builtin *starlark.Builtin, args
 	if err := starlark.UnpackArgs(builtin.Name(), args, kwargs, "name", &name); err != nil {
 		return nil, err
 	}
+	if l.paramDisabled {
+		return nil, fmt.Errorf("param(%q) is not allowed in subworkflows; declare input(%q)", name, name)
+	}
 	value, ok := l.Params[name]
 	if !ok {
 		return nil, fmt.Errorf("missing workflow param %q", name)
@@ -309,8 +348,10 @@ func unpackSteps(value starlark.Value) ([]workflow.Node, error) {
 			steps = append(steps, value.task)
 		case *repeatUntilValue:
 			steps = append(steps, value.loop)
+		case *subworkflowValue:
+			steps = append(steps, value.subworkflow)
 		default:
-			return nil, fmt.Errorf("steps[%d] must be a task or repeat_until, got %s", i, item.Type())
+			return nil, fmt.Errorf("steps[%d] must be a task, repeat_until, or subworkflow, got %s", i, item.Type())
 		}
 	}
 	return steps, nil

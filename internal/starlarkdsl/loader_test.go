@@ -471,6 +471,287 @@ wf = workflow(
 	}
 }
 
+func TestLoaderLoadsSubworkflowNode(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	childPath := filepath.Join(baseDir, "child.star")
+	writeFile(t, childPath, `
+wf = workflow(
+    id = "child",
+    steps = [],
+)
+`)
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "parent",
+    steps = [
+        subworkflow(id = "spec", workflow = "child.star"),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	wf, err := loader.Load(workflowPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	sub, ok := wf.Steps[0].(*workflow.Subworkflow)
+	if !ok {
+		t.Fatalf("wf.Steps[0] = %T, want *workflow.Subworkflow", wf.Steps[0])
+	}
+	if sub.Workflow == nil || sub.Workflow.ID != "child" {
+		t.Fatalf("sub.Workflow = %#v, want child workflow", sub.Workflow)
+	}
+	if sub.WorkflowPath != childPath {
+		t.Fatalf("sub.WorkflowPath = %q, want %q", sub.WorkflowPath, childPath)
+	}
+	if len(sub.Inputs) != 0 {
+		t.Fatalf("sub.Inputs len = %d, want 0", len(sub.Inputs))
+	}
+}
+
+func TestLoaderResolvesSubworkflowPathRelativeToCallerModule(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	childPath := filepath.Join(baseDir, "children", "spec.star")
+	writeFile(t, childPath, `
+wf = workflow(
+    id = "spec",
+    steps = [],
+)
+`)
+	writeFile(t, filepath.Join(baseDir, "lib", "stages.star"), `
+def spec_stage():
+    return subworkflow(id = "spec", workflow = "../children/spec.star")
+`)
+	writeFile(t, workflowPath, `
+load("lib/stages.star", "spec_stage")
+
+wf = workflow(
+    id = "parent",
+    steps = [
+        spec_stage(),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	wf, err := loader.Load(workflowPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	sub := wf.Steps[0].(*workflow.Subworkflow)
+	if sub.WorkflowPath != childPath {
+		t.Fatalf("WorkflowPath = %q, want %q", sub.WorkflowPath, childPath)
+	}
+	if sub.ModuleDir != filepath.Join(baseDir, "lib") {
+		t.Fatalf("ModuleDir = %q, want %q", sub.ModuleDir, filepath.Join(baseDir, "lib"))
+	}
+}
+
+func TestLoaderRejectsSubworkflowOutsideBaseDir(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	outsidePath := filepath.Join(filepath.Dir(baseDir), "outside.star")
+	writeFile(t, outsidePath, `
+wf = workflow(id = "outside", steps = [])
+`)
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "parent",
+    steps = [
+        subworkflow(id = "outside", workflow = "../outside.star"),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `escapes base directory`) {
+		t.Fatalf("Load() error = %v, want base directory error", err)
+	}
+}
+
+func TestLoaderRejectsSubworkflowWithoutWF(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, filepath.Join(baseDir, "child.star"), `value = "no wf"`)
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "parent",
+    steps = [
+        subworkflow(id = "child", workflow = "child.star"),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `does not define top-level wf`) {
+		t.Fatalf("Load() error = %v, want missing wf error", err)
+	}
+}
+
+func TestLoaderRejectsParamInSubworkflow(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, filepath.Join(baseDir, "child.star"), `
+name = param("name")
+
+wf = workflow(id = "child", steps = [])
+`)
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "parent",
+    steps = [
+        subworkflow(id = "child", workflow = "child.star"),
+    ],
+)
+`)
+
+	loader := Loader{Params: map[string]string{"name": "rain"}, BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `param("name") is not allowed in subworkflows`) {
+		t.Fatalf("Load() error = %v, want subworkflow param error", err)
+	}
+}
+
+func TestLoaderRejectsParamInSubworkflowHelperModule(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, filepath.Join(baseDir, "lib", "helper.star"), `
+name = param("name")
+`)
+	writeFile(t, filepath.Join(baseDir, "child.star"), `
+load("lib/helper.star", "name")
+
+wf = workflow(id = "child", steps = [])
+`)
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "parent",
+    steps = [
+        subworkflow(id = "child", workflow = "child.star"),
+    ],
+)
+`)
+
+	loader := Loader{Params: map[string]string{"name": "rain"}, BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `param("name") is not allowed in subworkflows`) {
+		t.Fatalf("Load() error = %v, want subworkflow helper param error", err)
+	}
+}
+
+func TestLoaderRejectsDirectSubworkflowCycle(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "parent",
+    steps = [
+        subworkflow(id = "self", workflow = "workflow.star"),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `subworkflow cycle detected`) {
+		t.Fatalf("Load() error = %v, want cycle error", err)
+	}
+}
+
+func TestLoaderRejectsIndirectSubworkflowCycle(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, filepath.Join(baseDir, "child.star"), `
+wf = workflow(
+    id = "child",
+    steps = [
+        subworkflow(id = "parent", workflow = "workflow.star"),
+    ],
+)
+`)
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "parent",
+    steps = [
+        subworkflow(id = "child", workflow = "child.star"),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `subworkflow cycle detected`) {
+		t.Fatalf("Load() error = %v, want cycle error", err)
+	}
+}
+
+func TestLoaderAcceptsNoInputSubworkflowWithEmptyInputs(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, filepath.Join(baseDir, "child.star"), `
+wf = workflow(
+    id = "child",
+    steps = [],
+)
+`)
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "parent",
+    steps = [
+        subworkflow(id = "implicit", workflow = "child.star"),
+        subworkflow(id = "explicit", workflow = "child.star", inputs = {}),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	wf, err := loader.Load(workflowPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	for _, node := range wf.Steps {
+		sub := node.(*workflow.Subworkflow)
+		if len(sub.Inputs) != 0 {
+			t.Fatalf("subworkflow %q inputs len = %d, want 0", sub.ID, len(sub.Inputs))
+		}
+	}
+}
+
+func TestLoaderLoadsDistinctSubworkflowInstancesForSameFile(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, filepath.Join(baseDir, "child.star"), `
+wf = workflow(
+    id = "child",
+    steps = [],
+)
+`)
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "parent",
+    steps = [
+        subworkflow(id = "first", workflow = "child.star"),
+        subworkflow(id = "second", workflow = "child.star"),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	wf, err := loader.Load(workflowPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	first := wf.Steps[0].(*workflow.Subworkflow)
+	second := wf.Steps[1].(*workflow.Subworkflow)
+	if first.Workflow == second.Workflow {
+		t.Fatal("subworkflow instances share the same child workflow pointer")
+	}
+}
+
 func TestLoaderRejectsForwardReference(t *testing.T) {
 	baseDir := t.TempDir()
 	writeFile(t, filepath.Join(baseDir, "agents", "writer.md"), `Read "${POEM_PATH}".`)
