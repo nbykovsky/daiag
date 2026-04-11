@@ -198,6 +198,7 @@ These rules replace the current path-only workflow reference validation in
    unresolvable IDs are load time errors.
 6. Update `docs/workflow-language.md` to document workflow ID resolution and the
    `--workflows-lib` flag, including:
+   - Minimal Correct Example
    - Current CLI Surface
    - Module Loading rules
    - `subworkflow(...)` rules
