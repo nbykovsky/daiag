@@ -108,6 +108,53 @@ func TestDefaultRunnerReportsMissingWorkflowInput(t *testing.T) {
 	}
 }
 
+func TestDefaultRunnerRejectsRelativeWorkdir(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	app := NewDefault(&stdout, &stderr)
+
+	exitCode := app.Run(context.Background(), []string{
+		"run",
+		"--workflow", "workflow.star",
+		"--workdir", "relative",
+	})
+
+	if exitCode != 1 {
+		t.Fatalf("exit code = %d, want 1", exitCode)
+	}
+	if !strings.Contains(stderr.String(), "--workdir must be an absolute path") {
+		t.Fatalf("stderr = %q, want absolute workdir error", stderr.String())
+	}
+}
+
+func TestDefaultRunnerCreatesWorkdir(t *testing.T) {
+	workflowDir := t.TempDir()
+	workdir := filepath.Join(t.TempDir(), "run", "nested")
+	workflowPath := writeCLITestWorkflow(t, workflowDir)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	app := NewDefault(&stdout, &stderr)
+
+	exitCode := app.Run(context.Background(), []string{
+		"run",
+		"--workflow", workflowPath,
+		"--input", "name=rain",
+		"--workdir", workdir,
+	})
+
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr=%q)", exitCode, stderr.String())
+	}
+	info, err := os.Stat(workdir)
+	if err != nil {
+		t.Fatalf("expected workdir to be created: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("workdir path is not a directory")
+	}
+}
+
 func writeCLITestWorkflow(t *testing.T, workdir string) string {
 	t.Helper()
 

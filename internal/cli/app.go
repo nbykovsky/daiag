@@ -10,7 +10,7 @@ import (
 )
 
 const usageText = `Usage:
-  daiag run --workflow <path> [--input key=value] [--param key=value] [--workdir <path>] [--verbose]
+  daiag run --workflow <path> --workdir <path> [--input key=value] [--param key=value] [--verbose]
 
 Commands:
   run     Execute a workflow
@@ -122,6 +122,9 @@ func parseRunArgs(args []string) (RunConfig, error) {
 			return RunConfig{}, fmt.Errorf("conflicting workflow input %q from --input and --param", key)
 		}
 		merged[key] = value
+	}
+	if cfg.Workdir == "" {
+		return RunConfig{}, errors.New("--workdir is required")
 	}
 	cfg.Inputs = cloneStringMap(merged)
 	cfg.Params = cloneStringMap(merged)

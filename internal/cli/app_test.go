@@ -65,6 +65,24 @@ func TestAppRunInvokesRunner(t *testing.T) {
 	}
 }
 
+func TestAppRunMissingWorkdir(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	app := New(&stdout, &stderr, &fakeRunner{})
+	exitCode := app.Run(context.Background(), []string{
+		"run",
+		"--workflow", "workflows/poem.star",
+	})
+
+	if exitCode != 2 {
+		t.Fatalf("exit code = %d, want 2", exitCode)
+	}
+	if !strings.Contains(stderr.String(), "--workdir is required") {
+		t.Fatalf("stderr = %q, want workdir error", stderr.String())
+	}
+}
+
 func TestAppRunKeepsParamAsInputAlias(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -74,6 +92,7 @@ func TestAppRunKeepsParamAsInputAlias(t *testing.T) {
 	exitCode := app.Run(context.Background(), []string{
 		"run",
 		"--workflow", "workflows/poem.star",
+		"--workdir", "/tmp/work",
 		"--param", "name=rain",
 	})
 
@@ -135,6 +154,7 @@ func TestAppRunPropagatesRunnerError(t *testing.T) {
 	exitCode := app.Run(context.Background(), []string{
 		"run",
 		"--workflow", "workflows/poem.star",
+		"--workdir", "/tmp/work",
 	})
 
 	if exitCode != 1 {

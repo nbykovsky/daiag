@@ -65,9 +65,15 @@ func (r workflowRunner) Run(ctx context.Context, cfg RunConfig) error {
 
 func resolveWorkdir(path string) (string, error) {
 	if path == "" {
-		return os.Getwd()
+		return "", fmt.Errorf("--workdir is required")
 	}
-	return filepath.Abs(path)
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("--workdir must be an absolute path")
+	}
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return "", fmt.Errorf("create workdir %q: %w", path, err)
+	}
+	return path, nil
 }
 
 func runConfigInputs(cfg RunConfig) map[string]string {
