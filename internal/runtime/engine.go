@@ -51,6 +51,7 @@ type state struct {
 	results   map[string]map[string]any
 	loops     map[string]int
 	inputs    map[string]any
+	workdir   string
 }
 
 func (e Engine) Run(ctx context.Context, input RunInput) error {
@@ -63,6 +64,7 @@ func (e Engine) Run(ctx context.Context, input RunInput) error {
 		results:   make(map[string]map[string]any),
 		loops:     make(map[string]int),
 		inputs:    cloneAnyMap(input.Inputs),
+		workdir:   input.Workdir,
 	}
 
 	if e.Logger != nil {
@@ -148,7 +150,7 @@ func (e Engine) runTask(ctx context.Context, input RunInput, st *state, task *wo
 	artifacts := make(map[string]string, len(task.Artifacts))
 	artifactKeys := make([]string, 0, len(task.Artifacts))
 	for key, expr := range task.Artifacts {
-		path, err := resolveStringExpr(expr, st)
+		path, err := resolveArtifactPath(input.Workdir, expr, st)
 		if err != nil {
 			return stepError{StepID: task.ID, Err: fmt.Errorf("resolve artifact %q: %w", key, err)}
 		}
@@ -191,6 +193,7 @@ func (e Engine) runSubworkflow(ctx context.Context, input RunInput, st *state, s
 		results:   make(map[string]map[string]any),
 		loops:     make(map[string]int),
 		inputs:    childInputs,
+		workdir:   input.Workdir,
 	}
 	childInput := RunInput{
 		Workflow:     sub.Workflow,
@@ -206,7 +209,7 @@ func (e Engine) runSubworkflow(ctx context.Context, input RunInput, st *state, s
 	outputArtifacts := make(map[string]string, len(sub.Workflow.OutputArtifacts))
 	outputArtifactKeys := make([]string, 0, len(sub.Workflow.OutputArtifacts))
 	for key, expr := range sub.Workflow.OutputArtifacts {
-		value, err := resolveStringExpr(expr, childState)
+		value, err := resolveArtifactPath(input.Workdir, expr, childState)
 		if err != nil {
 			return e.failSubworkflow(sub.ID, stepError{StepID: sub.ID, Err: fmt.Errorf("resolve output artifact %q: %w", key, err)})
 		}
@@ -411,6 +414,8 @@ func resolveStringExpr(expr workflow.StringExpr, st *state) (string, error) {
 			return "", fmt.Errorf("missing input %q", e.Name)
 		}
 		return fmt.Sprint(value), nil
+	case workflow.WorkdirRef:
+		return st.workdir, nil
 	default:
 		return "", fmt.Errorf("unsupported string expression type %T", expr)
 	}
@@ -448,6 +453,8 @@ func resolveValueExpr(expr workflow.ValueExpr, st *state) (any, error) {
 			return nil, fmt.Errorf("missing input %q", e.Name)
 		}
 		return value, nil
+	case workflow.WorkdirRef:
+		return resolveStringExpr(e, st)
 	default:
 		return nil, fmt.Errorf("unsupported value expression type %T", expr)
 	}
@@ -493,6 +500,17 @@ func renderFormatExpr(expr workflow.FormatExpr, st *state) (string, error) {
 	}
 
 	return rendered.String(), nil
+}
+
+func resolveArtifactPath(workdir string, expr workflow.StringExpr, st *state) (string, error) {
+	path, err := resolveStringExpr(expr, st)
+	if err != nil {
+		return "", err
+	}
+	if filepath.IsAbs(path) {
+		return path, nil
+	}
+	return filepath.Join(workdir, path), nil
 }
 
 func evalPredicate(predicate workflow.Predicate, st *state) (bool, error) {

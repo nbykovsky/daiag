@@ -127,6 +127,17 @@ func (i *inputValue) String() string {
 	return fmt.Sprintf("input(%q)", i.ref.Name)
 }
 
+type workdirValue struct{}
+
+func (*workdirValue) Type() string          { return "workdir" }
+func (*workdirValue) Freeze()               {}
+func (*workdirValue) Truth() starlark.Bool  { return starlark.True }
+func (*workdirValue) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: workdir") }
+
+func (*workdirValue) String() string {
+	return "workdir()"
+}
+
 type promptTemplateValue struct {
 	prompt workflow.Prompt
 }
@@ -190,6 +201,8 @@ func exprString(expr workflow.ValueExpr) string {
 		return fmt.Sprintf("loop_iter(%q)", e.LoopID)
 	case workflow.InputRef:
 		return fmt.Sprintf("input(%q)", e.Name)
+	case workflow.WorkdirRef:
+		return "workdir()"
 	case workflow.FormatExpr:
 		return fmt.Sprintf("format(%q)", e.Template)
 	default:

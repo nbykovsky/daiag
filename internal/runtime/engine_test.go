@@ -211,6 +211,78 @@ func TestEngineResolvesWorkflowInputs(t *testing.T) {
 	}
 }
 
+func TestEngineResolvesWorkdirExpressionAndStoresAbsoluteArtifactPaths(t *testing.T) {
+	baseDir := t.TempDir()
+	workdir := t.TempDir()
+	writeFile(t, filepath.Join(baseDir, "agents", "write.md"), `out=${OUT_PATH}`)
+	writeFile(t, filepath.Join(baseDir, "agents", "consume.md"), `poem=${POEM_PATH}`)
+
+	prompts := make(map[string]string)
+	engine := Engine{
+		Executors: map[string]Executor{
+			"codex": fakeExecutorFunc(func(_ context.Context, req TaskRequest) (TaskResponse, error) {
+				if req.Workdir != workdir {
+					return TaskResponse{}, fmt.Errorf("Workdir = %q, want %q", req.Workdir, workdir)
+				}
+				prompts[req.TaskID] = req.Prompt
+				switch req.TaskID {
+				case "write_poem":
+					writeFile(t, filepath.Join(workdir, "docs", "poem.md"), "one\n")
+				case "consume_poem":
+					writeFile(t, filepath.Join(workdir, "docs", "summary.md"), "summary\n")
+				default:
+					return TaskResponse{}, fmt.Errorf("unexpected task %q", req.TaskID)
+				}
+				return TaskResponse{Stdout: `{"ok":true}`, ExitCode: 0}, nil
+			}),
+		},
+	}
+
+	wf := &workflow.Workflow{
+		ID:              "poem",
+		DefaultExecutor: &workflow.ExecutorConfig{CLI: "codex", Model: "gpt-5.4"},
+		Steps: []workflow.Node{
+			&workflow.Task{
+				ID: "write_poem",
+				Prompt: workflow.Prompt{
+					TemplatePath: "agents/write.md",
+					Vars: map[string]workflow.StringExpr{
+						"OUT_PATH": workflow.FormatExpr{
+							Template: "{workdir}/explicit.md",
+							Args: map[string]workflow.ValueExpr{
+								"workdir": workflow.WorkdirRef{},
+							},
+						},
+					},
+				},
+				Artifacts:  map[string]workflow.StringExpr{"poem": workflow.Literal{Value: "docs/poem.md"}},
+				ResultKeys: []string{"ok"},
+			},
+			&workflow.Task{
+				ID: "consume_poem",
+				Prompt: workflow.Prompt{
+					TemplatePath: "agents/consume.md",
+					Vars: map[string]workflow.StringExpr{
+						"POEM_PATH": workflow.PathRef{StepID: "write_poem", ArtifactKey: "poem"},
+					},
+				},
+				Artifacts:  map[string]workflow.StringExpr{"summary": workflow.Literal{Value: "docs/summary.md"}},
+				ResultKeys: []string{"ok"},
+			},
+		},
+	}
+
+	if err := engine.Run(context.Background(), RunInput{Workflow: wf, BaseDir: baseDir, Workdir: workdir}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := prompts["write_poem"], "out="+filepath.Join(workdir, "explicit.md"); got != want {
+		t.Fatalf("write prompt = %q, want %q", got, want)
+	}
+	if got, want := prompts["consume_poem"], "poem="+filepath.Join(workdir, "docs", "poem.md"); got != want {
+		t.Fatalf("consume prompt = %q, want %q", got, want)
+	}
+}
+
 func TestEngineRunsSubworkflowAndExposesOutputs(t *testing.T) {
 	baseDir := t.TempDir()
 	writeFile(t, filepath.Join(baseDir, "agents", "child.md"), `literal=${LITERAL} source=${SOURCE_PATH} status=${STATUS}`)
@@ -318,13 +390,20 @@ func TestEngineRunsSubworkflowAndExposesOutputs(t *testing.T) {
 		t.Fatalf("Run() error = %v", err)
 	}
 	childPrompt := prompts["child.child_write"]
-	for _, want := range []string{"literal=literal-value", "source=docs/source.md", "status=ready"} {
+	for _, want := range []string{
+		"literal=literal-value",
+		"source=" + filepath.Join(baseDir, "docs", "source.md"),
+		"status=ready",
+	} {
 		if !strings.Contains(childPrompt, want) {
 			t.Fatalf("child prompt = %q, want %q", childPrompt, want)
 		}
 	}
 	parentPrompt := prompts["parent.consume"]
-	for _, want := range []string{"child=docs/child.md", "source=docs/source.md"} {
+	for _, want := range []string{
+		"child=" + filepath.Join(baseDir, "docs", "child.md"),
+		"source=" + filepath.Join(baseDir, "docs", "source.md"),
+	} {
 		if !strings.Contains(parentPrompt, want) {
 			t.Fatalf("parent prompt = %q, want %q", parentPrompt, want)
 		}

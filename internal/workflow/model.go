@@ -139,6 +139,12 @@ func (InputRef) valueExpr() {}
 
 func (InputRef) stringExpr() {}
 
+type WorkdirRef struct{}
+
+func (WorkdirRef) valueExpr() {}
+
+func (WorkdirRef) stringExpr() {}
+
 type FormatExpr struct {
 	Template string
 	Args     map[string]ValueExpr

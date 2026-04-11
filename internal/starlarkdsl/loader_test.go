@@ -277,6 +277,46 @@ wf = workflow(
 	}
 }
 
+func TestLoaderLoadsWorkdirExpression(t *testing.T) {
+	baseDir := t.TempDir()
+	writeFile(t, filepath.Join(baseDir, "agents", "writer.md"), `Write "${POEM_PATH}".`)
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, workflowPath, `
+poem_path = format("{workdir}/docs/poem.md", workdir = workdir())
+
+wf = workflow(
+    id = "poem",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        task(
+            id = "write_poem",
+            prompt = template_file("agents/writer.md", vars = {"POEM_PATH": poem_path}),
+            artifacts = {"poem": artifact(poem_path)},
+            result_keys = ["ok"],
+        ),
+    ],
+    output_artifacts = {"poem": poem_path},
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	wf, err := loader.Load(workflowPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	task := wf.Steps[0].(*workflow.Task)
+	expr, ok := task.Artifacts["poem"].(workflow.FormatExpr)
+	if !ok {
+		t.Fatalf("artifact poem = %T, want workflow.FormatExpr", task.Artifacts["poem"])
+	}
+	if _, ok := expr.Args["workdir"].(workflow.WorkdirRef); !ok {
+		t.Fatalf("format workdir arg = %T, want workflow.WorkdirRef", expr.Args["workdir"])
+	}
+	if _, ok := wf.OutputArtifacts["poem"].(workflow.FormatExpr); !ok {
+		t.Fatalf("output artifact poem = %T, want workflow.FormatExpr", wf.OutputArtifacts["poem"])
+	}
+}
+
 func TestLoaderRejectsDuplicateWorkflowInputs(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")

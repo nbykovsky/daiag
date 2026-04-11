@@ -308,6 +308,8 @@ func validateStringExpr(expr StringExpr, seenNodes map[string]nodeInfo, activeLo
 			return fmt.Errorf("unknown workflow input %q", e.Name)
 		}
 		return nil
+	case WorkdirRef:
+		return nil
 	default:
 		return fmt.Errorf("unsupported string expression type %T", expr)
 	}
@@ -348,6 +350,8 @@ func validateValueExpr(expr ValueExpr, seenNodes map[string]nodeInfo, activeLoop
 		return nil
 	case InputRef:
 		return validateStringExpr(e, seenNodes, activeLoops, declaredInputs)
+	case WorkdirRef:
+		return nil
 	default:
 		return fmt.Errorf("unsupported value expression type %T", expr)
 	}
