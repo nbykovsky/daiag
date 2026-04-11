@@ -37,7 +37,7 @@ The file passed to the CLI is the entry workflow file.
 Example:
 
 ```sh
-daiag run --workflow examples/development-workflow/workflows/feature-development.star --input name=indicators
+daiag run --workflow examples/development-workflow/workflows/feature-development.star --workdir /tmp/daiag-run --input name=indicators
 ```
 
 The entry file must define a top-level variable named `wf`.
@@ -88,6 +88,8 @@ The workflow DSL provides these builtins:
 - `json_ref(step_id, field)`
 - `loop_iter(loop_id)`
 - `input(name)`
+- `workdir()`
+- `projectdir()`
 - `template_file(path, vars = {...})`
 - `param(name)`
 - `format(template, ...)`
@@ -279,6 +281,8 @@ Supported string expression types:
 - `format(...)`
 - `path_ref(...)`
 - `input(...)`
+- `workdir()`
+- `projectdir()`
 
 ## `path_ref(step_id, artifact_key)`
 
@@ -397,7 +401,7 @@ wf = workflow(
 CLI:
 
 ```sh
-daiag run --workflow examples/development-workflow/workflows/feature-development.star --input name=indicators
+daiag run --workflow examples/development-workflow/workflows/feature-development.star --workdir /tmp/daiag-run --input name=indicators
 ```
 
 Rules:
@@ -407,6 +411,38 @@ Rules:
 - child workflow inputs are supplied by the parent `subworkflow(inputs = {...})` map
 - `input(...)` may be used anywhere a string expression or value expression is accepted
 - when used in a string context, the runtime value is stringified
+
+## `workdir()`
+
+Returns the run workdir as a symbolic string expression.
+
+Example:
+
+```python
+poem_path = format("{workdir}/docs/poem.md", workdir = workdir())
+```
+
+Rules:
+
+- the value resolves at execution time from the required `--workdir` flag
+- `workdir()` may be used anywhere a string expression or value expression is accepted
+- subworkflows share the parent run's workdir implicitly
+
+## `projectdir()`
+
+Returns the project root for the Starlark module where `projectdir()` is called.
+
+Example:
+
+```python
+spec_path = format("{project}/docs/spec.md", project = projectdir())
+```
+
+Rules:
+
+- the value resolves at load time to the nearest ancestor directory containing `.daiag/`
+- the search starts from the calling `.star` module's directory
+- workflows outside any `.daiag/` project must pass the project path as an explicit input instead
 
 ## `param(name)`
 
@@ -421,7 +457,7 @@ name = param("name")
 CLI:
 
 ```sh
-daiag run --workflow examples/poem/workflows/poem.star --param name=rain
+daiag run --workflow examples/poem/workflows/poem.star --workdir /tmp/daiag-run --param name=rain
 ```
 
 Rules:
@@ -456,6 +492,8 @@ Supported argument value types:
 - `json_ref(...)`
 - `loop_iter(...)`
 - `input(...)`
+- `workdir()`
+- `projectdir()`
 
 Rules:
 
@@ -544,6 +582,9 @@ Rules:
 - URLs are not allowed
 - load cycles are rejected
 
+For CLI runs, the workflow base directory is the entry workflow file's
+directory. It is separate from `--workdir`.
+
 Loaded modules may export:
 
 - constants
@@ -579,8 +620,15 @@ Artifact paths are runtime workflow data, not module paths.
 This means:
 
 - they are not resolved relative to the Starlark module file
-- they are interpreted relative to workflow execution context and `--workdir`
+- relative task artifact paths and `output_artifacts` paths are resolved
+  against `--workdir` at execution time
+- resolved artifact paths are stored and exposed through `path_ref(...)` as
+  absolute paths
 - absolute artifact paths are preserved as-is
+- arbitrary prompt template variables are not automatically resolved against
+  `--workdir`; use `workdir()` when a prompt variable needs a workdir-rooted path
+- executors run with `--workdir` as their CWD and access root, so absolute
+  artifact paths outside `--workdir` depend on executor permissions
 
 ## Validation Rules
 
@@ -632,6 +680,7 @@ Workflow loading and validation reject the following cases.
 ### Reference Errors
 
 - `input(...)` not declared by the current workflow
+- `projectdir()` in a module with no `.daiag/` ancestor
 - `path_ref(...)` to unknown step
 - `path_ref(...)` to undeclared artifact key
 - `json_ref(...)` to unknown step
@@ -661,8 +710,14 @@ Workflow loading and validation reject the following cases.
 The current CLI supports:
 
 ```sh
-daiag run --workflow <path> [--input key=value] [--param key=value] [--workdir <path>] [--verbose]
+daiag run --workflow <path> --workdir <absolute-path> [--input key=value] [--param key=value] [--verbose]
 ```
+
+Rules:
+
+- `--workdir` is required
+- `--workdir` must be an absolute path
+- the CLI creates `--workdir` if it does not exist
 
 There is no dedicated `daiag validate` command today.
 
@@ -671,14 +726,14 @@ There is no dedicated `daiag validate` command today.
 The current validation path is:
 
 ```sh
-go run ./cmd/daiag run --workflow examples/development-workflow/workflows/feature-development.star --input name=indicators
+go run ./cmd/daiag run --workflow examples/development-workflow/workflows/feature-development.star --workdir /tmp/daiag-run --input name=indicators
 ```
 
 or, after building:
 
 ```sh
 go build ./cmd/daiag
-./daiag run --workflow examples/development-workflow/workflows/feature-development.star --input name=indicators
+./daiag run --workflow examples/development-workflow/workflows/feature-development.star --workdir /tmp/daiag-run --input name=indicators
 ```
 
 Behavior:
@@ -704,7 +759,7 @@ Parent workflow:
 
 ```python
 name = input("name")
-feature_dir = format("examples/development-workflow/docs/features/{name}", name = name)
+feature_dir = format("{workdir}/docs/features/{name}", workdir = workdir(), name = name)
 
 wf = workflow(
     id = "feature-development",
@@ -751,6 +806,8 @@ wf = workflow(
 - keep `param(...)` only for compatibility with existing top-level workflows
 - use `load(...)` for path helpers and task constructors
 - keep prompt templates in separate Markdown files
+- use `workdir()` for run output paths
+- use `projectdir()` for explicit project source paths
 - use `path_ref(...)` for file handoff between tasks
 - use `json_ref(...)` only for control flow and metadata
 - use `loop_iter(...)` only when you need per-iteration file names
