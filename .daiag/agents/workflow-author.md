@@ -277,7 +277,6 @@ Rules:
 - Add a new `##` section for each new workflow.
 - Update the existing section when a workflow's inputs, outputs, or description change.
 - Keep entries in the order they were added.
-- Do not remove entries unless the `.star` file itself is deleted.
 - For top-level entry workflows not intended as subworkflows, set Output Artifacts and Output Results to `none`.
 
 ## Module Loading

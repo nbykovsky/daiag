@@ -1,0 +1,1 @@
+../../../.daiag/skills/workflow-delete/SKILL.md

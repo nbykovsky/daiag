@@ -11,7 +11,7 @@ The `workflow-author` agent reads this file to discover available workflows and 
 
 Writes a 10-line poem to a caller-supplied path and exposes the file as a reusable subworkflow output.
 
-File: `examples/write_poem/workflows/write_poem.star`
+File: `.daiag/workflows/write_poem/write_poem.star`
 
 Inputs:
 - `poem_path` — absolute or relative path where the poem file should be written
