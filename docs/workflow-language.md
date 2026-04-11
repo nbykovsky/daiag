@@ -15,9 +15,7 @@ It covers:
 - validation rules
 - current validation commands
 
-This document describes the target behavior once `docs/workflows-lib-design.md`
-and `docs/workdir-design.md` are implemented. It will track the live
-implementation from that point forward.
+This document describes the implementation that exists today.
 
 ## File Type
 
