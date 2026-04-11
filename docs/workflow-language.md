@@ -746,7 +746,7 @@ Rules:
 
 - `--workflow` is required and must be a workflow ID
 - `--workdir` is required
-- `--workdir` must be an absolute path
+- `--workdir` accepts absolute or relative paths; relative paths are resolved from the process current working directory
 - the CLI creates `--workdir` if it does not exist
 - `--workflows-lib` is optional and defaults to `<projectdir>/.daiag/workflows`
 

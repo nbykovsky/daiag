@@ -126,13 +126,14 @@ func resolveWorkdir(path string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("--workdir is required")
 	}
-	if !filepath.IsAbs(path) {
-		return "", fmt.Errorf("--workdir must be an absolute path")
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve --workdir: %w", err)
 	}
-	if err := os.MkdirAll(path, 0o755); err != nil {
-		return "", fmt.Errorf("create workdir %q: %w", path, err)
+	if err := os.MkdirAll(absPath, 0o755); err != nil {
+		return "", fmt.Errorf("create workdir %q: %w", absPath, err)
 	}
-	return path, nil
+	return absPath, nil
 }
 
 func runConfigInputs(cfg RunConfig) map[string]string {

@@ -35,9 +35,9 @@ rejected.
 
 #### `--workdir <path>` (required)
 
-Absolute path to the run output directory.
+Path to the run output directory. Absolute or relative; relative paths are
+resolved from the process current working directory.
 
-- Must be an absolute path.
 - Created with `mkdir -p` before execution begins if it does not exist.
 - Shared across all subworkflows in the run.
 - Used as the executor CWD for every task.

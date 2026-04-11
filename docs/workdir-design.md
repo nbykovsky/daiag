@@ -56,6 +56,7 @@ loading — this must be corrected as part of this implementation.
   workdir at execution time, producing absolute paths stored and used
   everywhere.
 - Require `--workdir` explicitly — no silent fallback to `os.Getwd()`.
+- Accept relative `--workdir` paths and resolve them from the process current working directory.
 - Create `workdir` on disk if it does not exist.
 - Share the same workdir across all subworkflows in a run implicitly.
 
@@ -209,7 +210,8 @@ the correct absolute path.
 
 - `--workdir` is required. Missing `--workdir` is a startup error before
   workflow loading begins.
-- `--workdir` must be an absolute path.
+- `--workdir` accepts absolute or relative paths; relative paths are resolved
+  from the process current working directory.
 - `projectdir()` called in a module with no `.daiag/` ancestor is a load
   time error.
 
