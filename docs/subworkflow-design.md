@@ -160,6 +160,17 @@ Compatibility behavior:
 - New workflows should not use `param(...)`.
 - A workflow loaded through `subworkflow(...)` must not call `param(...)`.
 
+Coexistence detail:
+
+- `param(...)` resolves during Starlark evaluation and returns a plain string.
+- `input(...)` resolves at runtime and returns a symbolic value expression.
+- After Starlark evaluation, the validator cannot reliably prove that a workflow
+  used both for the same logical value.
+- During migration, the CLI should merge `--input` and compatibility `--param`
+  values into one input map and reject conflicting values for the same key.
+- If a top-level workflow uses both `param("name")` and `input("name")`, both
+  should receive the same merged value.
+
 Authoring recommendation:
 
 - Prefer declaring `input(...)` values near the top of the workflow file that
@@ -211,6 +222,8 @@ wf = workflow(
 - `output_artifacts` values must be string expressions.
 - `output_results` values must be value expressions.
 - Output expressions may reference only steps visible inside the workflow.
+- Output expressions may reference declared workflow inputs. This supports
+  pass-through outputs such as `output_artifacts = {"spec": input("spec_path")}`.
 - Output expressions may reference loop body tasks if those tasks have executed
   before the workflow completes.
 - Parent workflows can reference only declared outputs.
@@ -290,6 +303,9 @@ wf = workflow(
 
 - `id`
 - `workflow`
+
+### Optional Fields
+
 - `inputs`
 
 ### Rules
@@ -301,7 +317,9 @@ wf = workflow(
   - under the workflow base directory
   - no URLs
   - no path escape through `..`
-- `inputs` must be a dict.
+- `inputs` must be a dict when provided.
+- omitted `inputs` defaults to `{}`.
+- `inputs = {}` is valid when the child workflow declares no inputs.
 - Every key in `inputs` must match a declared input on the child workflow.
 - Every child required input must be provided by the parent.
 - Parent input values may be:
@@ -434,7 +452,6 @@ type Subworkflow struct {
     ModuleDir    string
     Workflow     *Workflow
     Inputs       map[string]ValueExpr
-    Outputs      WorkflowOutputs
 }
 
 func (*Subworkflow) node() {}
@@ -444,15 +461,9 @@ func (s *Subworkflow) NodeID() string {
 }
 ```
 
-`Workflow` and `Outputs` are populated by the Starlark loader before runtime
-execution:
-
-```go
-type WorkflowOutputs struct {
-    Artifacts map[string]StringExpr
-    Results   map[string]ValueExpr
-}
-```
+`Workflow` is populated by the Starlark loader before runtime execution.
+The child workflow's `OutputArtifacts` and `OutputResults` fields are the
+single source of truth for the subworkflow's public outputs.
 
 Add workflow input references:
 
@@ -467,6 +478,24 @@ func (InputRef) stringExpr() {}
 
 `InputRef` should be accepted anywhere a string expression or value expression
 is currently accepted.
+
+Required closed-switch updates:
+
+- `internal/starlarkdsl.unpackSteps` must accept `subworkflow(...)` values.
+- `internal/starlarkdsl.unpackStringExpr` must accept `input(...)` values.
+- `internal/starlarkdsl.unpackValueExpr` must accept `input(...)` values.
+- `internal/workflow.validateStringExpr` must handle `workflow.InputRef`.
+- `internal/workflow.validateValueExpr` must handle `workflow.InputRef`.
+- `internal/runtime.resolveStringExpr` must handle `workflow.InputRef`.
+- `internal/runtime.resolveValueExpr` must handle `workflow.InputRef`.
+
+`format(...)` arguments may contain `input(...)` directly or through a local
+variable:
+
+```python
+feature_workspace = input("feature_dir")
+spec_path = format("{dir}/spec.md", dir = feature_workspace)
+```
 
 ## Starlark Loader Changes
 
@@ -505,11 +534,34 @@ Recommended implementation:
 3. The loader loads each child workflow file through a workflow-file loading
    path that allows top-level `wf`.
 4. The loader attaches the loaded child workflow to `Subworkflow.Workflow`.
-5. The loader records child public output keys in `Subworkflow.Outputs`.
-6. The workflow validator validates the fully loaded tree.
+5. The workflow validator validates the fully loaded tree.
 
 This keeps Starlark execution simple and keeps runtime execution independent
 from Starlark file loading.
+
+Child workflow loading should use a workflow-file stack:
+
+```go
+type workflowLoadStack struct {
+    loading []string
+}
+```
+
+The stack contains canonical absolute workflow file paths currently being
+loaded through `Loader.Load` and nested `subworkflow(...)` references.
+If a child path already exists in the stack, loading fails with a subworkflow
+cycle error.
+
+Do not reuse one mutable `*workflow.Workflow` pointer for multiple
+`subworkflow(...)` nodes. If the same child workflow file is referenced twice,
+execute the child workflow file twice and attach a fresh workflow object to each
+node. A source-file or parsed-file cache is acceptable later, but it must not
+share mutable workflow model instances across subworkflow nodes.
+
+Each workflow file evaluation should have its own Starlark helper-module cache
+for `load(...)`. This avoids accidental pointer aliasing between separate
+subworkflow instances. `load(...)` cycle detection remains separate from
+subworkflow file cycle detection.
 
 When loading a child workflow for `subworkflow(...)`, the load session should run
 with `param(...)` disabled for the child workflow file and the helper modules it
@@ -540,6 +592,49 @@ The `workflow.Validator` should not load Starlark files. It should validate the
 already-loaded workflow tree. The `starlarkdsl.Loader` is responsible for
 resolving subworkflow paths, loading child workflow files, attaching child
 workflow objects to `Subworkflow` nodes, and detecting subworkflow file cycles.
+
+Validator API should expose top-level input bindings without changing the
+`Validate(wf *Workflow)` method shape:
+
+```go
+type Validator struct {
+    BaseDir string
+    Inputs  map[string]string
+}
+```
+
+`Inputs` contains CLI input bindings for the top-level workflow. Existing tests
+that construct workflows without `input(...)` values can keep using
+`Validator{BaseDir: ...}`.
+
+Internally, validation should use an explicit scope object rather than one
+global ID map:
+
+```go
+type validationScope struct {
+    seenTasks       map[string]taskInfo
+    seenNodes       map[string]nodeInfo
+    activeLoops     map[string]struct{}
+    declaredInputs  map[string]struct{}
+    availableInputs map[string]struct{}
+    templateBaseDir  string
+}
+```
+
+Each workflow gets its own `seenNodes` map. Loops reuse the current workflow
+scope because step IDs remain unique within a workflow, including nested loop
+bodies. Subworkflows create a new child workflow scope, so parent and child task
+IDs may overlap.
+
+Do not pass the parent workflow's global ID set into child workflow validation.
+The current single-map approach is valid only before subworkflows exist.
+
+`templateBaseDir` is the fallback base directory for prompt templates whose
+`Prompt.TemplateDir` is empty. For a child workflow, use the child workflow
+file's directory, not the parent workflow file's directory. Prompt values
+created through `template_file(...)` should still carry their exact module
+directory in `Prompt.TemplateDir`, which remains the primary path resolution
+mechanism.
 
 ### Parent Scope
 
@@ -585,12 +680,17 @@ When validating a `Subworkflow` node:
 1. Validate the node ID and path.
 2. Require `Subworkflow.Workflow` to be non-nil.
 3. Validate the child workflow in a new scope.
-4. Validate the parent `inputs` map expressions against the parent scope.
+4. Validate the parent `inputs` map expressions against the parent scope,
+   including the parent's active loop set.
 5. Check that every child `inputs` declaration has exactly one parent binding.
 6. Reject unknown input keys in the parent binding map.
 7. Register the subworkflow node in the parent scope with:
    - artifact keys from child `output_artifacts`
    - result keys from child `output_results`
+
+Child workflow validation must start with an empty active loop set. Parent loop
+state is visible only while validating parent-side subworkflow input
+expressions, not while validating the child internals.
 
 ### Forward References
 
@@ -600,6 +700,13 @@ Forward reference behavior stays the same:
 - child steps can reference only earlier child-scope nodes
 - child output expressions can reference any step that is guaranteed to have
   executed by the end of the child workflow
+
+Workflow output expressions should be validated against the final scope returned
+after validating the workflow's `steps`. Because `repeat_until(max_iters >= 1)`
+always executes its body at least once, the final scope includes tasks in loop
+bodies using the same "latest successful execution" rule as normal downstream
+references. If a future conditional step can skip its body entirely, output
+validation must be revisited for that new control-flow primitive.
 
 ### Duplicate IDs
 
@@ -715,6 +822,26 @@ step ID. Example:
 step spec.review_spec: artifact "review_report": expected file "..."
 ```
 
+Use the existing flat `stepError` shape at the parent boundary:
+
+```go
+func qualifySubworkflowError(subworkflowID string, err error) error {
+    childStepID, ok := errStepID(err)
+    if !ok {
+        return stepError{StepID: subworkflowID, Err: err}
+    }
+    return stepError{
+        StepID: subworkflowID + "." + childStepID,
+        Err:    unwrapStepError(err),
+    }
+}
+```
+
+The exact helper names can differ, but the parent should rewrite child
+`stepError{StepID: "review_spec"}` into
+`stepError{StepID: "spec.review_spec"}` before logging or returning it. That
+keeps logger behavior compatible with the current flat step ID field.
+
 ### Logging
 
 Add subworkflow progress events:
@@ -787,20 +914,26 @@ Add loader and validator tests for:
 - `input("x")` without `inputs = ["x"]` fails validation
 - child workflow path outside base dir fails validation
 - child workflow without top-level `wf` fails validation
+- child workflow with no declared inputs can be called with omitted `inputs`
+- child workflow with no declared inputs can be called with `inputs = {}`
 - child workflow missing parent input binding fails validation
 - parent binding with unknown child input key fails validation
 - parent cannot reference child internal task IDs
 - parent can reference child declared output artifacts and results
 - duplicate IDs between parent and child are allowed
 - duplicate IDs inside child still fail
+- two subworkflow nodes referencing the same child file receive distinct
+  workflow model instances
 - subworkflow cycles fail with a clear error
 
 Add runtime tests for:
 
 - parent passes a literal input to a child workflow
+- `format(...)` can use `input(...)` values as arguments
 - parent passes `path_ref(...)` into a child workflow
 - child output artifact is visible as `path_ref(subworkflow_id, key)`
 - child output result is visible as `json_ref(subworkflow_id, key)`
+- child output expressions may pass through declared `input(...)` values
 - child runtime state does not leak internal task IDs to parent
 - child failure is reported with subworkflow context
 
@@ -816,15 +949,15 @@ Add CLI-level tests for:
 2. Add Starlark values and builtins for `input(...)` and `subworkflow(...)`.
 3. Extend `workflow(...)` unpacking for `inputs`, `output_artifacts`, and
    `output_results`.
-4. Add CLI `--input key=value` and keep `--param key=value` as a compatibility
-   alias.
-5. Refactor validation into explicit workflow scopes.
+4. Refactor validation into explicit workflow scopes and add `InputRef`
+   validation.
+5. Add runtime `InputRef` resolution and CLI `--input key=value` together; keep
+   `--param key=value` as a compatibility alias.
 6. Add child workflow loading and subworkflow cycle detection.
-7. Add runtime input resolution.
-8. Add subworkflow execution and output registration.
-9. Add logging events.
-10. Update `docs/workflow-language.md` after implementation lands.
-11. Convert one existing example, likely the development workflow, to use a
+7. Add subworkflow execution and output registration.
+8. Add logging events.
+9. Update `docs/workflow-language.md` after implementation lands.
+10. Convert one existing example, likely the development workflow, to use a
     `spec_refinement` subworkflow as the first real example.
 
 ## Open Questions
