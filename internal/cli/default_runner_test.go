@@ -271,7 +271,7 @@ wf = workflow(
     steps = [
         subworkflow(
             id = "child",
-            workflow = "child.star",
+            workflow = "child",
             inputs = {
                 "name": name,
                 "spec_path": spec_path,
@@ -280,7 +280,7 @@ wf = workflow(
     ],
 )
 `)
-	writeCLITestFile(t, filepath.Join(parentDir, "child.star"), `
+	writeCLITestFile(t, filepath.Join(workflowsLib, "child", "child.star"), `
 name = input("name")
 spec_path = input("spec_path")
 

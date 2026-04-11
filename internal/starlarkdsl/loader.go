@@ -116,7 +116,7 @@ func (l Loader) loadSubworkflowsInNode(node workflow.Node, baseDir string, ctx *
 		}
 		return nil
 	case *workflow.Subworkflow:
-		childPath, err := resolveSubworkflowPath(n.ModuleDir, n.WorkflowPath, baseDir)
+		childPath, err := ResolveWorkflowID(baseDir, n.WorkflowPath)
 		if err != nil {
 			return fmt.Errorf("load subworkflow %q: %w", n.ID, err)
 		}

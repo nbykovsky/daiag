@@ -145,14 +145,14 @@ func (l Loader) builtinRepeatUntil(_ *starlark.Thread, builtin *starlark.Builtin
 	}, nil
 }
 
-func (l Loader) builtinSubworkflow(thread *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (l Loader) builtinSubworkflow(_ *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var id string
-	var workflowPath string
+	var workflowID string
 	var inputsValue starlark.Value = starlark.None
 
 	if err := starlark.UnpackArgs(builtin.Name(), args, kwargs,
 		"id", &id,
-		"workflow", &workflowPath,
+		"workflow", &workflowID,
 		"inputs?", &inputsValue,
 	); err != nil {
 		return nil, err
@@ -166,16 +166,10 @@ func (l Loader) builtinSubworkflow(thread *starlark.Thread, builtin *starlark.Bu
 		inputs = map[string]workflow.ValueExpr{}
 	}
 
-	modulePath, err := currentCallerModulePath(thread)
-	if err != nil {
-		return nil, err
-	}
-
 	return &subworkflowValue{
 		subworkflow: &workflow.Subworkflow{
 			ID:           id,
-			WorkflowPath: workflowPath,
-			ModuleDir:    filepath.Dir(modulePath),
+			WorkflowPath: workflowID,
 			Inputs:       inputs,
 		},
 	}, nil

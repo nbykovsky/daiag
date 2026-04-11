@@ -3,7 +3,6 @@ package workflow
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 )
 
@@ -191,8 +190,7 @@ func (v Validator) validateSubworkflow(sub *Subworkflow, parentNodes map[string]
 	}
 
 	childInputs := stringKeySet(sub.Workflow.Inputs)
-	childBaseDir := filepath.Dir(sub.WorkflowPath)
-	if err := v.validateWorkflow(sub.Workflow, childBaseDir, childInputs); err != nil {
+	if err := v.validateWorkflow(sub.Workflow, v.BaseDir, childInputs); err != nil {
 		return err
 	}
 

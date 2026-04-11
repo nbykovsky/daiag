@@ -10,7 +10,7 @@ wf = workflow(
         task(
             id = "write_spec",
             prompt = template_file(
-                "../agents/spec-writer.md",
+                "../../agents/spec-writer.md",
                 vars = {
                     "FEATURE_DIR": feature_dir,
                     "PRD_PATH": prd_path,
@@ -32,7 +32,7 @@ wf = workflow(
                 task(
                     id = "review_spec",
                     prompt = template_file(
-                        "../agents/requirements-reviewer.md",
+                        "../../agents/requirements-reviewer.md",
                         vars = {
                             "SPEC_PATH": path_ref("write_spec", "spec"),
                             "REVIEW_PATH": format(
@@ -57,7 +57,7 @@ wf = workflow(
                 task(
                     id = "address_review",
                     prompt = template_file(
-                        "../agents/review-addresser.md",
+                        "../../agents/review-addresser.md",
                         vars = {
                             "SPEC_PATH": path_ref("review_spec", "spec"),
                             "REVIEW_PATH": path_ref("review_spec", "review_report"),

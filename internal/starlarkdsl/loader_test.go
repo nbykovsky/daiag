@@ -195,11 +195,12 @@ func TestLoaderLoadsDevelopmentWorkflowExample(t *testing.T) {
 		t.Fatalf("Getwd(): %v", err)
 	}
 	repoRoot := filepath.Clean(filepath.Join(wd, "..", ".."))
-	workflowPath := filepath.Join(repoRoot, "examples", "development-workflow", "workflows", "feature-development.star")
+	workflowsLib := filepath.Join(repoRoot, "examples", "development-workflow", "workflows")
+	workflowPath := filepath.Join(workflowsLib, "feature-development", "feature-development.star")
 
 	loader := Loader{
 		Inputs:  map[string]string{"name": "indicators"},
-		BaseDir: repoRoot,
+		BaseDir: workflowsLib,
 	}
 
 	wf, err := loader.Load(workflowPath)
@@ -612,7 +613,7 @@ wf = workflow(
 func TestLoaderLoadsSubworkflowNode(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")
-	childPath := filepath.Join(baseDir, "child.star")
+	childPath := workflowIDPath(baseDir, "child")
 	writeFile(t, childPath, `
 wf = workflow(
     id = "child",
@@ -623,7 +624,7 @@ wf = workflow(
 wf = workflow(
     id = "parent",
     steps = [
-        subworkflow(id = "spec", workflow = "child.star"),
+        subworkflow(id = "spec", workflow = "child"),
     ],
 )
 `)
@@ -648,10 +649,10 @@ wf = workflow(
 	}
 }
 
-func TestLoaderResolvesSubworkflowPathRelativeToCallerModule(t *testing.T) {
+func TestLoaderResolvesSubworkflowIDFromLibraryRootInLoadedModule(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")
-	childPath := filepath.Join(baseDir, "children", "spec.star")
+	childPath := workflowIDPath(baseDir, "spec")
 	writeFile(t, childPath, `
 wf = workflow(
     id = "spec",
@@ -660,7 +661,7 @@ wf = workflow(
 `)
 	writeFile(t, filepath.Join(baseDir, "lib", "stages.star"), `
 def spec_stage():
-    return subworkflow(id = "spec", workflow = "../children/spec.star")
+    return subworkflow(id = "spec", workflow = "spec")
 `)
 	writeFile(t, workflowPath, `
 load("lib/stages.star", "spec_stage")
@@ -682,18 +683,11 @@ wf = workflow(
 	if sub.WorkflowPath != childPath {
 		t.Fatalf("WorkflowPath = %q, want %q", sub.WorkflowPath, childPath)
 	}
-	if sub.ModuleDir != filepath.Join(baseDir, "lib") {
-		t.Fatalf("ModuleDir = %q, want %q", sub.ModuleDir, filepath.Join(baseDir, "lib"))
-	}
 }
 
-func TestLoaderRejectsSubworkflowOutsideBaseDir(t *testing.T) {
+func TestLoaderRejectsPathStyleSubworkflowReference(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")
-	outsidePath := filepath.Join(filepath.Dir(baseDir), "outside.star")
-	writeFile(t, outsidePath, `
-wf = workflow(id = "outside", steps = [])
-`)
 	writeFile(t, workflowPath, `
 wf = workflow(
     id = "parent",
@@ -705,20 +699,20 @@ wf = workflow(
 
 	loader := Loader{BaseDir: baseDir}
 	_, err := loader.Load(workflowPath)
-	if err == nil || !contains(err.Error(), `escapes base directory`) {
-		t.Fatalf("Load() error = %v, want base directory error", err)
+	if err == nil || !contains(err.Error(), `workflow reference "../outside.star" must be a workflow ID`) {
+		t.Fatalf("Load() error = %v, want workflow ID error", err)
 	}
 }
 
 func TestLoaderRejectsSubworkflowWithoutWF(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")
-	writeFile(t, filepath.Join(baseDir, "child.star"), `value = "no wf"`)
+	writeFile(t, workflowIDPath(baseDir, "child"), `value = "no wf"`)
 	writeFile(t, workflowPath, `
 wf = workflow(
     id = "parent",
     steps = [
-        subworkflow(id = "child", workflow = "child.star"),
+        subworkflow(id = "child", workflow = "child"),
     ],
 )
 `)
@@ -733,7 +727,7 @@ wf = workflow(
 func TestLoaderRejectsParamInSubworkflow(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")
-	writeFile(t, filepath.Join(baseDir, "child.star"), `
+	writeFile(t, workflowIDPath(baseDir, "child"), `
 name = param("name")
 
 wf = workflow(id = "child", steps = [])
@@ -742,7 +736,7 @@ wf = workflow(id = "child", steps = [])
 wf = workflow(
     id = "parent",
     steps = [
-        subworkflow(id = "child", workflow = "child.star"),
+        subworkflow(id = "child", workflow = "child"),
     ],
 )
 `)
@@ -757,10 +751,10 @@ wf = workflow(
 func TestLoaderRejectsParamInSubworkflowHelperModule(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")
-	writeFile(t, filepath.Join(baseDir, "lib", "helper.star"), `
+	writeFile(t, filepath.Join(baseDir, "child", "lib", "helper.star"), `
 name = param("name")
 `)
-	writeFile(t, filepath.Join(baseDir, "child.star"), `
+	writeFile(t, workflowIDPath(baseDir, "child"), `
 load("lib/helper.star", "name")
 
 wf = workflow(id = "child", steps = [])
@@ -769,7 +763,7 @@ wf = workflow(id = "child", steps = [])
 wf = workflow(
     id = "parent",
     steps = [
-        subworkflow(id = "child", workflow = "child.star"),
+        subworkflow(id = "child", workflow = "child"),
     ],
 )
 `)
@@ -783,12 +777,12 @@ wf = workflow(
 
 func TestLoaderRejectsDirectSubworkflowCycle(t *testing.T) {
 	baseDir := t.TempDir()
-	workflowPath := filepath.Join(baseDir, "workflow.star")
+	workflowPath := workflowIDPath(baseDir, "parent")
 	writeFile(t, workflowPath, `
 wf = workflow(
     id = "parent",
     steps = [
-        subworkflow(id = "self", workflow = "workflow.star"),
+        subworkflow(id = "self", workflow = "parent"),
     ],
 )
 `)
@@ -802,12 +796,12 @@ wf = workflow(
 
 func TestLoaderRejectsIndirectSubworkflowCycle(t *testing.T) {
 	baseDir := t.TempDir()
-	workflowPath := filepath.Join(baseDir, "workflow.star")
-	writeFile(t, filepath.Join(baseDir, "child.star"), `
+	workflowPath := workflowIDPath(baseDir, "parent")
+	writeFile(t, workflowIDPath(baseDir, "child"), `
 wf = workflow(
     id = "child",
     steps = [
-        subworkflow(id = "parent", workflow = "workflow.star"),
+        subworkflow(id = "parent", workflow = "parent"),
     ],
 )
 `)
@@ -815,7 +809,7 @@ wf = workflow(
 wf = workflow(
     id = "parent",
     steps = [
-        subworkflow(id = "child", workflow = "child.star"),
+        subworkflow(id = "child", workflow = "child"),
     ],
 )
 `)
@@ -830,7 +824,7 @@ wf = workflow(
 func TestLoaderAcceptsNoInputSubworkflowWithEmptyInputs(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")
-	writeFile(t, filepath.Join(baseDir, "child.star"), `
+	writeFile(t, workflowIDPath(baseDir, "child"), `
 wf = workflow(
     id = "child",
     steps = [],
@@ -840,8 +834,8 @@ wf = workflow(
 wf = workflow(
     id = "parent",
     steps = [
-        subworkflow(id = "implicit", workflow = "child.star"),
-        subworkflow(id = "explicit", workflow = "child.star", inputs = {}),
+        subworkflow(id = "implicit", workflow = "child"),
+        subworkflow(id = "explicit", workflow = "child", inputs = {}),
     ],
 )
 `)
@@ -862,7 +856,7 @@ wf = workflow(
 func TestLoaderLoadsDistinctSubworkflowInstancesForSameFile(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")
-	writeFile(t, filepath.Join(baseDir, "child.star"), `
+	writeFile(t, workflowIDPath(baseDir, "child"), `
 wf = workflow(
     id = "child",
     steps = [],
@@ -872,8 +866,8 @@ wf = workflow(
 wf = workflow(
     id = "parent",
     steps = [
-        subworkflow(id = "first", workflow = "child.star"),
-        subworkflow(id = "second", workflow = "child.star"),
+        subworkflow(id = "first", workflow = "child"),
+        subworkflow(id = "second", workflow = "child"),
     ],
 )
 `)
@@ -893,7 +887,7 @@ wf = workflow(
 func TestLoaderAllowsParentReferencesToSubworkflowOutputs(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")
-	writeFile(t, filepath.Join(baseDir, "child.star"), `
+	writeFile(t, workflowIDPath(baseDir, "child"), `
 wf = workflow(
     id = "child",
     default_executor = {"cli": "codex", "model": "gpt-5.4"},
@@ -914,7 +908,7 @@ wf = workflow(
     id = "parent",
     default_executor = {"cli": "codex", "model": "gpt-5.4"},
     steps = [
-        subworkflow(id = "spec", workflow = "child.star"),
+        subworkflow(id = "spec", workflow = "child"),
         task(
             id = "consume_spec",
             prompt = "hello",
@@ -937,7 +931,7 @@ wf = workflow(
 func TestLoaderRejectsParentReferenceToChildInternalTask(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")
-	writeFile(t, filepath.Join(baseDir, "child.star"), `
+	writeFile(t, workflowIDPath(baseDir, "child"), `
 wf = workflow(
     id = "child",
     default_executor = {"cli": "codex", "model": "gpt-5.4"},
@@ -957,7 +951,7 @@ wf = workflow(
     id = "parent",
     default_executor = {"cli": "codex", "model": "gpt-5.4"},
     steps = [
-        subworkflow(id = "spec", workflow = "child.star"),
+        subworkflow(id = "spec", workflow = "child"),
         task(
             id = "consume_spec",
             prompt = "hello",
@@ -978,7 +972,7 @@ wf = workflow(
 func TestLoaderRejectsChildReferenceToParentTask(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")
-	writeFile(t, filepath.Join(baseDir, "child.star"), `
+	writeFile(t, workflowIDPath(baseDir, "child"), `
 wf = workflow(
     id = "child",
     default_executor = {"cli": "codex", "model": "gpt-5.4"},
@@ -1003,7 +997,7 @@ wf = workflow(
             artifacts = {"spec": artifact("docs/spec.md")},
             result_keys = ["ok"],
         ),
-        subworkflow(id = "child", workflow = "child.star"),
+        subworkflow(id = "child", workflow = "child"),
     ],
 )
 `)
@@ -1018,7 +1012,7 @@ wf = workflow(
 func TestLoaderAllowsSameTaskIDAcrossParentAndChild(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")
-	writeFile(t, filepath.Join(baseDir, "child.star"), `
+	writeFile(t, workflowIDPath(baseDir, "child"), `
 wf = workflow(
     id = "child",
     default_executor = {"cli": "codex", "model": "gpt-5.4"},
@@ -1043,7 +1037,7 @@ wf = workflow(
             artifacts = {"spec": artifact("docs/parent-spec.md")},
             result_keys = ["ok"],
         ),
-        subworkflow(id = "child", workflow = "child.star"),
+        subworkflow(id = "child", workflow = "child"),
     ],
 )
 `)
@@ -1057,7 +1051,7 @@ wf = workflow(
 func TestLoaderRejectsDuplicateIDsInsideChildWorkflow(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")
-	writeFile(t, filepath.Join(baseDir, "child.star"), `
+	writeFile(t, workflowIDPath(baseDir, "child"), `
 wf = workflow(
     id = "child",
     default_executor = {"cli": "codex", "model": "gpt-5.4"},
@@ -1081,7 +1075,7 @@ wf = workflow(
 wf = workflow(
     id = "parent",
     steps = [
-        subworkflow(id = "child", workflow = "child.star"),
+        subworkflow(id = "child", workflow = "child"),
     ],
 )
 `)
@@ -1096,7 +1090,7 @@ wf = workflow(
 func TestLoaderAllowsLoopIterInSubworkflowInputBinding(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")
-	writeFile(t, filepath.Join(baseDir, "child.star"), `
+	writeFile(t, workflowIDPath(baseDir, "child"), `
 wf = workflow(
     id = "child",
     inputs = ["iter"],
@@ -1113,7 +1107,7 @@ wf = workflow(
             steps = [
                 subworkflow(
                     id = "child",
-                    workflow = "child.star",
+                    workflow = "child",
                     inputs = {"iter": loop_iter("review_loop")},
                 ),
             ],
@@ -1132,7 +1126,7 @@ wf = workflow(
 func TestLoaderDoesNotInheritParentLoopScopeInChildWorkflow(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")
-	writeFile(t, filepath.Join(baseDir, "child.star"), `
+	writeFile(t, workflowIDPath(baseDir, "child"), `
 wf = workflow(
     id = "child",
     default_executor = {"cli": "codex", "model": "gpt-5.4"},
@@ -1156,7 +1150,7 @@ wf = workflow(
             id = "review_loop",
             max_iters = 1,
             steps = [
-                subworkflow(id = "child", workflow = "child.star"),
+                subworkflow(id = "child", workflow = "child"),
             ],
             until = eq(loop_iter("review_loop"), 1),
         ),
@@ -1174,7 +1168,7 @@ wf = workflow(
 func TestLoaderRejectsMissingSubworkflowInputBinding(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")
-	writeFile(t, filepath.Join(baseDir, "child.star"), `
+	writeFile(t, workflowIDPath(baseDir, "child"), `
 wf = workflow(
     id = "child",
     inputs = ["name"],
@@ -1185,7 +1179,7 @@ wf = workflow(
 wf = workflow(
     id = "parent",
     steps = [
-        subworkflow(id = "child", workflow = "child.star"),
+        subworkflow(id = "child", workflow = "child"),
     ],
 )
 `)
@@ -1200,7 +1194,7 @@ wf = workflow(
 func TestLoaderRejectsUnknownSubworkflowInputBinding(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")
-	writeFile(t, filepath.Join(baseDir, "child.star"), `
+	writeFile(t, workflowIDPath(baseDir, "child"), `
 wf = workflow(
     id = "child",
     steps = [],
@@ -1210,7 +1204,7 @@ wf = workflow(
 wf = workflow(
     id = "parent",
     steps = [
-        subworkflow(id = "child", workflow = "child.star", inputs = {"name": "rain"}),
+        subworkflow(id = "child", workflow = "child", inputs = {"name": "rain"}),
     ],
 )
 `)
@@ -1454,6 +1448,10 @@ func writeFile(t *testing.T, path string, contents string) {
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatalf("WriteFile(%q): %v", path, err)
 	}
+}
+
+func workflowIDPath(baseDir string, id string) string {
+	return filepath.Join(baseDir, id, id+".star")
 }
 
 func contains(s, want string) bool {

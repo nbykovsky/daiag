@@ -51,7 +51,6 @@ func (r *RepeatUntil) NodeID() string {
 type Subworkflow struct {
 	ID           string
 	WorkflowPath string
-	ModuleDir    string
 	Workflow     *Workflow
 	Inputs       map[string]ValueExpr
 }

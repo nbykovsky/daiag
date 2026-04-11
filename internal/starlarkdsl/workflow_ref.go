@@ -20,11 +20,15 @@ func ResolveWorkflowID(workflowsLib string, id string) (string, error) {
 	}
 
 	path := filepath.Join(absLib, id, id+".star")
-	if _, err := os.Stat(path); err != nil {
+	info, err := os.Stat(path)
+	if err != nil {
 		if os.IsNotExist(err) {
 			return "", fmt.Errorf("workflow %q not found: expected %s", id, path)
 		}
 		return "", fmt.Errorf("stat workflow %q at %s: %w", id, path, err)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("workflow %q not found: expected file %s", id, path)
 	}
 
 	return path, nil

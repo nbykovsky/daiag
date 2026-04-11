@@ -10,7 +10,7 @@ wf = workflow(
     steps = [
         subworkflow(
             id = "spec_refinement",
-            workflow = "spec-refinement.star",
+            workflow = "spec-refinement",
             inputs = {
                 "feature_dir": feature_dir,
                 "prd_path": prd_path,
@@ -20,7 +20,7 @@ wf = workflow(
         task(
             id = "write_qa_tests",
             prompt = template_file(
-                "../agents/qa-test-writer.md",
+                "../../agents/qa-test-writer.md",
                 vars = {
                     "SPEC_PATH": path_ref("spec_refinement", "spec"),
                     "QA_TESTS_PATH": format("{dir}/qa_tests.md", dir = feature_dir),
@@ -36,7 +36,7 @@ wf = workflow(
         task(
             id = "split_spec_into_tasks",
             prompt = template_file(
-                "../agents/spec-task-splitter.md",
+                "../../agents/spec-task-splitter.md",
                 vars = {
                     "FEATURE_DIR": feature_dir,
                     "SPEC_PATH": path_ref("spec_refinement", "spec"),
@@ -54,7 +54,7 @@ wf = workflow(
             id = "execute_tasks",
             executor = {"cli": "codex", "model": "gpt-5.4"},
             prompt = template_file(
-                "../agents/task-batch-executor.md",
+                "../../agents/task-batch-executor.md",
                 vars = {
                     "TASK_INDEX_PATH": path_ref("split_spec_into_tasks", "task_index"),
                     "STATUS_PATH": format("{dir}/task_execution_status.md", dir = feature_dir),
@@ -69,7 +69,7 @@ wf = workflow(
         task(
             id = "refine_code",
             prompt = template_file(
-                "../agents/code-refiner.md",
+                "../../agents/code-refiner.md",
                 vars = {
                     "FEATURE_DIR": feature_dir,
                     "SPEC_PATH": path_ref("spec_refinement", "spec"),
@@ -84,7 +84,7 @@ wf = workflow(
         task(
             id = "run_qa_refiner",
             prompt = template_file(
-                "../agents/qa-refiner.md",
+                "../../agents/qa-refiner.md",
                 vars = {
                     "FEATURE_DIR": feature_dir,
                     "QA_TESTS_PATH": path_ref("write_qa_tests", "qa_tests"),
@@ -99,7 +99,7 @@ wf = workflow(
         task(
             id = "update_docs",
             prompt = template_file(
-                "../agents/docs-updater.md",
+                "../../agents/docs-updater.md",
                 vars = {
                     "SPEC_PATH": path_ref("spec_refinement", "spec"),
                     "STATUS_PATH": format("{dir}/docs_update_status.md", dir = feature_dir),
