@@ -752,6 +752,338 @@ wf = workflow(
 	}
 }
 
+func TestLoaderAllowsParentReferencesToSubworkflowOutputs(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, filepath.Join(baseDir, "child.star"), `
+wf = workflow(
+    id = "child",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        task(
+            id = "write_spec",
+            prompt = "hello",
+            artifacts = {"spec": artifact("docs/spec.md")},
+            result_keys = ["status"],
+        ),
+    ],
+    output_artifacts = {"spec": path_ref("write_spec", "spec")},
+    output_results = {"status": json_ref("write_spec", "status")},
+)
+`)
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "parent",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        subworkflow(id = "spec", workflow = "child.star"),
+        task(
+            id = "consume_spec",
+            prompt = "hello",
+            artifacts = {
+                "spec": artifact(path_ref("spec", "spec")),
+                "status": artifact(format("docs/{status}.md", status = json_ref("spec", "status"))),
+            },
+            result_keys = ["ok"],
+        ),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	if _, err := loader.Load(workflowPath); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+}
+
+func TestLoaderRejectsParentReferenceToChildInternalTask(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, filepath.Join(baseDir, "child.star"), `
+wf = workflow(
+    id = "child",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        task(
+            id = "write_spec",
+            prompt = "hello",
+            artifacts = {"spec": artifact("docs/spec.md")},
+            result_keys = ["status"],
+        ),
+    ],
+    output_artifacts = {"spec": path_ref("write_spec", "spec")},
+)
+`)
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "parent",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        subworkflow(id = "spec", workflow = "child.star"),
+        task(
+            id = "consume_spec",
+            prompt = "hello",
+            artifacts = {"spec": artifact(path_ref("write_spec", "spec"))},
+            result_keys = ["ok"],
+        ),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `unknown step "write_spec"`) {
+		t.Fatalf("Load() error = %v, want child internal reference error", err)
+	}
+}
+
+func TestLoaderRejectsChildReferenceToParentTask(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, filepath.Join(baseDir, "child.star"), `
+wf = workflow(
+    id = "child",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        task(
+            id = "consume_parent",
+            prompt = "hello",
+            artifacts = {"spec": artifact(path_ref("prepare", "spec"))},
+            result_keys = ["ok"],
+        ),
+    ],
+)
+`)
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "parent",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        task(
+            id = "prepare",
+            prompt = "hello",
+            artifacts = {"spec": artifact("docs/spec.md")},
+            result_keys = ["ok"],
+        ),
+        subworkflow(id = "child", workflow = "child.star"),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `unknown step "prepare"`) {
+		t.Fatalf("Load() error = %v, want parent reference error", err)
+	}
+}
+
+func TestLoaderAllowsSameTaskIDAcrossParentAndChild(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, filepath.Join(baseDir, "child.star"), `
+wf = workflow(
+    id = "child",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        task(
+            id = "write_spec",
+            prompt = "child",
+            artifacts = {"spec": artifact("docs/child-spec.md")},
+            result_keys = ["ok"],
+        ),
+    ],
+)
+`)
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "parent",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        task(
+            id = "write_spec",
+            prompt = "parent",
+            artifacts = {"spec": artifact("docs/parent-spec.md")},
+            result_keys = ["ok"],
+        ),
+        subworkflow(id = "child", workflow = "child.star"),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	if _, err := loader.Load(workflowPath); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+}
+
+func TestLoaderRejectsDuplicateIDsInsideChildWorkflow(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, filepath.Join(baseDir, "child.star"), `
+wf = workflow(
+    id = "child",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        task(
+            id = "dup",
+            prompt = "one",
+            artifacts = {"spec": artifact("docs/one.md")},
+            result_keys = ["ok"],
+        ),
+        task(
+            id = "dup",
+            prompt = "two",
+            artifacts = {"spec": artifact("docs/two.md")},
+            result_keys = ["ok"],
+        ),
+    ],
+)
+`)
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "parent",
+    steps = [
+        subworkflow(id = "child", workflow = "child.star"),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `duplicate step ID "dup"`) {
+		t.Fatalf("Load() error = %v, want child duplicate ID error", err)
+	}
+}
+
+func TestLoaderAllowsLoopIterInSubworkflowInputBinding(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, filepath.Join(baseDir, "child.star"), `
+wf = workflow(
+    id = "child",
+    inputs = ["iter"],
+    steps = [],
+)
+`)
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "parent",
+    steps = [
+        repeat_until(
+            id = "review_loop",
+            max_iters = 1,
+            steps = [
+                subworkflow(
+                    id = "child",
+                    workflow = "child.star",
+                    inputs = {"iter": loop_iter("review_loop")},
+                ),
+            ],
+            until = eq(loop_iter("review_loop"), 1),
+        ),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	if _, err := loader.Load(workflowPath); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+}
+
+func TestLoaderDoesNotInheritParentLoopScopeInChildWorkflow(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, filepath.Join(baseDir, "child.star"), `
+wf = workflow(
+    id = "child",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        task(
+            id = "write_review",
+            prompt = "hello",
+            artifacts = {
+                "review": artifact(format("docs/review-{iter}.md", iter = loop_iter("review_loop"))),
+            },
+            result_keys = ["ok"],
+        ),
+    ],
+)
+`)
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "parent",
+    steps = [
+        repeat_until(
+            id = "review_loop",
+            max_iters = 1,
+            steps = [
+                subworkflow(id = "child", workflow = "child.star"),
+            ],
+            until = eq(loop_iter("review_loop"), 1),
+        ),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `loop "review_loop" is not active in this scope`) {
+		t.Fatalf("Load() error = %v, want child loop scope error", err)
+	}
+}
+
+func TestLoaderRejectsMissingSubworkflowInputBinding(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, filepath.Join(baseDir, "child.star"), `
+wf = workflow(
+    id = "child",
+    inputs = ["name"],
+    steps = [],
+)
+`)
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "parent",
+    steps = [
+        subworkflow(id = "child", workflow = "child.star"),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `missing input binding "name"`) {
+		t.Fatalf("Load() error = %v, want missing binding error", err)
+	}
+}
+
+func TestLoaderRejectsUnknownSubworkflowInputBinding(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, filepath.Join(baseDir, "child.star"), `
+wf = workflow(
+    id = "child",
+    steps = [],
+)
+`)
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "parent",
+    steps = [
+        subworkflow(id = "child", workflow = "child.star", inputs = {"name": "rain"}),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `unknown input binding "name"`) {
+		t.Fatalf("Load() error = %v, want unknown binding error", err)
+	}
+}
+
 func TestLoaderRejectsForwardReference(t *testing.T) {
 	baseDir := t.TempDir()
 	writeFile(t, filepath.Join(baseDir, "agents", "writer.md"), `Read "${POEM_PATH}".`)

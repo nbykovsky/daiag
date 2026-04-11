@@ -3,6 +3,7 @@ package workflow
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 )
 
@@ -19,6 +20,10 @@ type nodeInfo struct {
 }
 
 func (v Validator) Validate(wf *Workflow) error {
+	return v.validateWorkflow(wf, v.BaseDir, stringKeySetFromMap(v.Inputs))
+}
+
+func (v Validator) validateWorkflow(wf *Workflow, templateBaseDir string, availableInputs map[string]struct{}) error {
 	if wf == nil {
 		return fmt.Errorf("workflow is nil")
 	}
@@ -30,7 +35,6 @@ func (v Validator) Validate(wf *Workflow) error {
 	if err != nil {
 		return err
 	}
-	availableInputs := stringKeySetFromMap(v.Inputs)
 	for name := range declaredInputs {
 		if _, ok := availableInputs[name]; !ok {
 			return fmt.Errorf("missing workflow input %q", name)
@@ -40,7 +44,7 @@ func (v Validator) Validate(wf *Workflow) error {
 	seenNodes := make(map[string]nodeInfo)
 	allIDs := make(map[string]struct{})
 
-	finalScope, err := v.validateSteps(wf.Steps, seenNodes, allIDs, wf.DefaultExecutor, map[string]struct{}{}, declaredInputs)
+	finalScope, err := v.validateSteps(wf.Steps, seenNodes, allIDs, wf.DefaultExecutor, map[string]struct{}{}, declaredInputs, templateBaseDir)
 	if err != nil {
 		return err
 	}
@@ -65,7 +69,7 @@ func (v Validator) validateInputs(inputs []string) (map[string]struct{}, error) 
 	return declared, nil
 }
 
-func (v Validator) validateSteps(steps []Node, seenNodes map[string]nodeInfo, allIDs map[string]struct{}, defaultExecutor *ExecutorConfig, activeLoops map[string]struct{}, declaredInputs map[string]struct{}) (map[string]nodeInfo, error) {
+func (v Validator) validateSteps(steps []Node, seenNodes map[string]nodeInfo, allIDs map[string]struct{}, defaultExecutor *ExecutorConfig, activeLoops map[string]struct{}, declaredInputs map[string]struct{}, templateBaseDir string) (map[string]nodeInfo, error) {
 	current := cloneNodeInfoMap(seenNodes)
 
 	for _, node := range steps {
@@ -82,7 +86,7 @@ func (v Validator) validateSteps(steps []Node, seenNodes map[string]nodeInfo, al
 
 		switch n := node.(type) {
 		case *Task:
-			if err := v.validateTask(n, current, defaultExecutor, activeLoops, declaredInputs); err != nil {
+			if err := v.validateTask(n, current, defaultExecutor, activeLoops, declaredInputs, templateBaseDir); err != nil {
 				return nil, fmt.Errorf("task %q: %w", n.ID, err)
 			}
 			current[n.ID] = nodeInfo{
@@ -95,7 +99,7 @@ func (v Validator) validateSteps(steps []Node, seenNodes map[string]nodeInfo, al
 			}
 			loopScope := cloneStringSet(activeLoops)
 			loopScope[n.ID] = struct{}{}
-			loopSeen, err := v.validateSteps(n.Steps, current, allIDs, defaultExecutor, loopScope, declaredInputs)
+			loopSeen, err := v.validateSteps(n.Steps, current, allIDs, defaultExecutor, loopScope, declaredInputs, templateBaseDir)
 			if err != nil {
 				return nil, err
 			}
@@ -104,10 +108,13 @@ func (v Validator) validateSteps(steps []Node, seenNodes map[string]nodeInfo, al
 			}
 			current = loopSeen
 		case *Subworkflow:
-			if n.Workflow == nil {
-				return nil, fmt.Errorf("subworkflow %q: workflow is not loaded", n.ID)
+			if err := v.validateSubworkflow(n, current, activeLoops, declaredInputs); err != nil {
+				return nil, fmt.Errorf("subworkflow %q: %w", n.ID, err)
 			}
-			current[n.ID] = nodeInfo{}
+			current[n.ID] = nodeInfo{
+				artifacts:  artifactKeySet(n.Workflow.OutputArtifacts),
+				resultKeys: valueExprKeySet(n.Workflow.OutputResults),
+			}
 		default:
 			return nil, fmt.Errorf("unsupported node type %T", node)
 		}
@@ -116,7 +123,7 @@ func (v Validator) validateSteps(steps []Node, seenNodes map[string]nodeInfo, al
 	return current, nil
 }
 
-func (v Validator) validateTask(task *Task, seenNodes map[string]nodeInfo, defaultExecutor *ExecutorConfig, activeLoops map[string]struct{}, declaredInputs map[string]struct{}) error {
+func (v Validator) validateTask(task *Task, seenNodes map[string]nodeInfo, defaultExecutor *ExecutorConfig, activeLoops map[string]struct{}, declaredInputs map[string]struct{}, templateBaseDir string) error {
 	if task.Prompt.TemplatePath == "" && task.Prompt.Inline == "" {
 		return fmt.Errorf("prompt is required")
 	}
@@ -150,7 +157,7 @@ func (v Validator) validateTask(task *Task, seenNodes map[string]nodeInfo, defau
 	}
 
 	if task.Prompt.TemplatePath != "" {
-		if err := v.validatePromptTemplate(task.Prompt); err != nil {
+		if err := v.validatePromptTemplate(task.Prompt, templateBaseDir); err != nil {
 			return err
 		}
 	}
@@ -169,6 +176,37 @@ func (v Validator) validateTask(task *Task, seenNodes map[string]nodeInfo, defau
 		}
 		if err := validateStringExpr(expr, seenNodes, activeLoops, declaredInputs); err != nil {
 			return fmt.Errorf("artifact %q: %w", key, err)
+		}
+	}
+
+	return nil
+}
+
+func (v Validator) validateSubworkflow(sub *Subworkflow, parentNodes map[string]nodeInfo, parentActiveLoops map[string]struct{}, parentInputs map[string]struct{}) error {
+	if sub.WorkflowPath == "" {
+		return fmt.Errorf("workflow path is empty")
+	}
+	if sub.Workflow == nil {
+		return fmt.Errorf("workflow is not loaded")
+	}
+
+	childInputs := stringKeySet(sub.Workflow.Inputs)
+	childBaseDir := filepath.Dir(sub.WorkflowPath)
+	if err := v.validateWorkflow(sub.Workflow, childBaseDir, childInputs); err != nil {
+		return err
+	}
+
+	for key, expr := range sub.Inputs {
+		if _, ok := childInputs[key]; !ok {
+			return fmt.Errorf("unknown input binding %q", key)
+		}
+		if err := validateValueExpr(expr, parentNodes, parentActiveLoops, parentInputs); err != nil {
+			return fmt.Errorf("input %q: %w", key, err)
+		}
+	}
+	for key := range childInputs {
+		if _, ok := sub.Inputs[key]; !ok {
+			return fmt.Errorf("missing input binding %q", key)
 		}
 	}
 
@@ -195,8 +233,8 @@ func (v Validator) validateWorkflowOutputs(wf *Workflow, seenNodes map[string]no
 	return nil
 }
 
-func (v Validator) validatePromptTemplate(prompt Prompt) error {
-	path := prompt.ResolvedTemplatePath(v.BaseDir)
+func (v Validator) validatePromptTemplate(prompt Prompt, templateBaseDir string) error {
+	path := prompt.ResolvedTemplatePath(templateBaseDir)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read prompt template %q: %w", prompt.TemplatePath, err)
@@ -318,6 +356,14 @@ func validateValueExpr(expr ValueExpr, seenNodes map[string]nodeInfo, activeLoop
 func artifactKeySet(artifacts map[string]StringExpr) map[string]struct{} {
 	keys := make(map[string]struct{}, len(artifacts))
 	for key := range artifacts {
+		keys[key] = struct{}{}
+	}
+	return keys
+}
+
+func valueExprKeySet(values map[string]ValueExpr) map[string]struct{} {
+	keys := make(map[string]struct{}, len(values))
+	for key := range values {
 		keys[key] = struct{}{}
 	}
 	return keys
