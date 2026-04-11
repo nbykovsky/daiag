@@ -11,7 +11,8 @@ import (
 
 func TestDefaultRunnerRunsInputSubworkflowWorkflow(t *testing.T) {
 	workdir := t.TempDir()
-	workflowPath := writeCLITestWorkflow(t, workdir)
+	workflowsLib := filepath.Join(t.TempDir(), "workflows")
+	writeCLITestWorkflow(t, workflowsLib)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -19,7 +20,8 @@ func TestDefaultRunnerRunsInputSubworkflowWorkflow(t *testing.T) {
 
 	exitCode := app.Run(context.Background(), []string{
 		"run",
-		"--workflow", workflowPath,
+		"--workflow", "parent",
+		"--workflows-lib", workflowsLib,
 		"--input", "name=rain",
 		"--workdir", workdir,
 	})
@@ -39,10 +41,10 @@ func TestDefaultRunnerRunsInputSubworkflowWorkflow(t *testing.T) {
 	}
 }
 
-func TestDefaultRunnerLoadsWorkflowRelativeToEntryFileNotWorkdir(t *testing.T) {
-	workflowDir := t.TempDir()
+func TestDefaultRunnerLoadsWorkflowFromLibraryNotWorkdir(t *testing.T) {
+	workflowsLib := filepath.Join(t.TempDir(), "workflows")
 	workdir := t.TempDir()
-	workflowPath := writeCLITestWorkflow(t, workflowDir)
+	writeCLITestWorkflow(t, workflowsLib)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -50,7 +52,8 @@ func TestDefaultRunnerLoadsWorkflowRelativeToEntryFileNotWorkdir(t *testing.T) {
 
 	exitCode := app.Run(context.Background(), []string{
 		"run",
-		"--workflow", workflowPath,
+		"--workflow", "parent",
+		"--workflows-lib", workflowsLib,
 		"--input", "name=rain",
 		"--workdir", workdir,
 	})
@@ -65,7 +68,8 @@ func TestDefaultRunnerLoadsWorkflowRelativeToEntryFileNotWorkdir(t *testing.T) {
 
 func TestDefaultRunnerKeepsParamAliasForInputWorkflow(t *testing.T) {
 	workdir := t.TempDir()
-	workflowPath := writeCLITestWorkflow(t, workdir)
+	workflowsLib := filepath.Join(t.TempDir(), "workflows")
+	writeCLITestWorkflow(t, workflowsLib)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -73,7 +77,8 @@ func TestDefaultRunnerKeepsParamAliasForInputWorkflow(t *testing.T) {
 
 	exitCode := app.Run(context.Background(), []string{
 		"run",
-		"--workflow", workflowPath,
+		"--workflow", "parent",
+		"--workflows-lib", workflowsLib,
 		"--param", "name=rain",
 		"--workdir", workdir,
 	})
@@ -88,7 +93,8 @@ func TestDefaultRunnerKeepsParamAliasForInputWorkflow(t *testing.T) {
 
 func TestDefaultRunnerReportsMissingWorkflowInput(t *testing.T) {
 	workdir := t.TempDir()
-	workflowPath := writeCLITestWorkflow(t, workdir)
+	workflowsLib := filepath.Join(t.TempDir(), "workflows")
+	writeCLITestWorkflow(t, workflowsLib)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -96,7 +102,8 @@ func TestDefaultRunnerReportsMissingWorkflowInput(t *testing.T) {
 
 	exitCode := app.Run(context.Background(), []string{
 		"run",
-		"--workflow", workflowPath,
+		"--workflow", "parent",
+		"--workflows-lib", workflowsLib,
 		"--workdir", workdir,
 	})
 
@@ -115,7 +122,7 @@ func TestDefaultRunnerRejectsRelativeWorkdir(t *testing.T) {
 
 	exitCode := app.Run(context.Background(), []string{
 		"run",
-		"--workflow", "workflow.star",
+		"--workflow", "workflow",
 		"--workdir", "relative",
 	})
 
@@ -128,9 +135,9 @@ func TestDefaultRunnerRejectsRelativeWorkdir(t *testing.T) {
 }
 
 func TestDefaultRunnerCreatesWorkdir(t *testing.T) {
-	workflowDir := t.TempDir()
+	workflowsLib := filepath.Join(t.TempDir(), "workflows")
 	workdir := filepath.Join(t.TempDir(), "run", "nested")
-	workflowPath := writeCLITestWorkflow(t, workflowDir)
+	writeCLITestWorkflow(t, workflowsLib)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -138,7 +145,8 @@ func TestDefaultRunnerCreatesWorkdir(t *testing.T) {
 
 	exitCode := app.Run(context.Background(), []string{
 		"run",
-		"--workflow", workflowPath,
+		"--workflow", "parent",
+		"--workflows-lib", workflowsLib,
 		"--input", "name=rain",
 		"--workdir", workdir,
 	})
@@ -155,10 +163,104 @@ func TestDefaultRunnerCreatesWorkdir(t *testing.T) {
 	}
 }
 
-func writeCLITestWorkflow(t *testing.T, workdir string) string {
+func TestDefaultRunnerUsesDefaultWorkflowsLibFromProjectRoot(t *testing.T) {
+	projectDir := t.TempDir()
+	workflowsLib := filepath.Join(projectDir, ".daiag", "workflows")
+	writeCLITestWorkflow(t, workflowsLib)
+	cwd := filepath.Join(projectDir, "nested")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q): %v", cwd, err)
+	}
+	withWorkingDir(t, cwd)
+
+	workdir := t.TempDir()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	app := NewDefault(&stdout, &stderr)
+
+	exitCode := app.Run(context.Background(), []string{
+		"run",
+		"--workflow", "parent",
+		"--input", "name=rain",
+		"--workdir", workdir,
+	})
+
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr=%q)", exitCode, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "workflow done id=parent status=success") {
+		t.Fatalf("stdout missing workflow success:\n%s", stdout.String())
+	}
+}
+
+func TestDefaultRunnerRejectsPathStyleWorkflowReference(t *testing.T) {
+	workflowsLib := filepath.Join(t.TempDir(), "workflows")
+	if err := os.MkdirAll(workflowsLib, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q): %v", workflowsLib, err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	app := NewDefault(&stdout, &stderr)
+
+	exitCode := app.Run(context.Background(), []string{
+		"run",
+		"--workflow", "parent.star",
+		"--workflows-lib", workflowsLib,
+		"--workdir", t.TempDir(),
+	})
+
+	if exitCode != 1 {
+		t.Fatalf("exit code = %d, want 1", exitCode)
+	}
+	if !strings.Contains(stderr.String(), `workflow reference "parent.star" must be a workflow ID`) {
+		t.Fatalf("stderr = %q, want workflow ID error", stderr.String())
+	}
+}
+
+func TestResolveWorkflowsLibResolvesExplicitRelativePath(t *testing.T) {
+	root := t.TempDir()
+	workflowsLib := filepath.Join(root, "workflows")
+	if err := os.MkdirAll(workflowsLib, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q): %v", workflowsLib, err)
+	}
+	withWorkingDir(t, root)
+
+	got, err := resolveWorkflowsLib("workflows")
+	if err != nil {
+		t.Fatalf("resolveWorkflowsLib() error = %v", err)
+	}
+	want, err := filepath.Abs("workflows")
+	if err != nil {
+		t.Fatalf("Abs(workflows): %v", err)
+	}
+	if got != want {
+		t.Fatalf("resolveWorkflowsLib() = %q, want %q", got, want)
+	}
+}
+
+func TestResolveWorkflowsLibRejectsMissingExplicitPath(t *testing.T) {
+	_, err := resolveWorkflowsLib(filepath.Join(t.TempDir(), "missing"))
+	if err == nil || !strings.Contains(err.Error(), "--workflows-lib") {
+		t.Fatalf("resolveWorkflowsLib() error = %v, want --workflows-lib error", err)
+	}
+}
+
+func TestResolveWorkflowsLibReportsMissingDefaultProjectRoot(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDir(t, root)
+
+	_, err := resolveWorkflowsLib("")
+	if err == nil || !strings.Contains(err.Error(), "--workflows-lib omitted and no .daiag directory found") {
+		t.Fatalf("resolveWorkflowsLib() error = %v, want missing project root error", err)
+	}
+}
+
+func writeCLITestWorkflow(t *testing.T, workflowsLib string) string {
 	t.Helper()
 
-	parentPath := filepath.Join(workdir, "parent.star")
+	parentDir := filepath.Join(workflowsLib, "parent")
+	parentPath := filepath.Join(parentDir, "parent.star")
 	writeCLITestFile(t, parentPath, `
 name = input("name")
 spec_path = format("docs/{name}/spec.md", name = name)
@@ -178,7 +280,7 @@ wf = workflow(
     ],
 )
 `)
-	writeCLITestFile(t, filepath.Join(workdir, "child.star"), `
+	writeCLITestFile(t, filepath.Join(parentDir, "child.star"), `
 name = input("name")
 spec_path = input("spec_path")
 
@@ -195,6 +297,23 @@ wf = workflow(
 )
 `)
 	return parentPath
+}
+
+func withWorkingDir(t *testing.T, dir string) {
+	t.Helper()
+
+	oldDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd(): %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir(%q): %v", dir, err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldDir); err != nil {
+			t.Fatalf("restore working directory %q: %v", oldDir, err)
+		}
+	})
 }
 
 func writeCLITestFile(t *testing.T, path string, contents string) {

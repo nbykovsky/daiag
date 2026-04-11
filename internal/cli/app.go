@@ -10,7 +10,7 @@ import (
 )
 
 const usageText = `Usage:
-  daiag run --workflow <path> --workdir <path> [--input key=value] [--param key=value] [--verbose]
+  daiag run --workflow <workflow-id> --workdir <path> [--workflows-lib <dir>] [--input key=value] [--param key=value] [--verbose]
 
 Commands:
   run     Execute a workflow
@@ -27,11 +27,12 @@ type App struct {
 }
 
 type RunConfig struct {
-	Workflow string
-	Inputs   map[string]string
-	Params   map[string]string
-	Workdir  string
-	Verbose  bool
+	Workflow     string
+	WorkflowsLib string
+	Inputs       map[string]string
+	Params       map[string]string
+	Workdir      string
+	Verbose      bool
 }
 
 func New(stdout, stderr io.Writer, runner Runner) *App {
@@ -83,7 +84,8 @@ func parseRunArgs(args []string) (RunConfig, error) {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 
-	fs.StringVar(&cfg.Workflow, "workflow", "", "path to workflow file")
+	fs.StringVar(&cfg.Workflow, "workflow", "", "workflow ID")
+	fs.StringVar(&cfg.WorkflowsLib, "workflows-lib", "", "workflow library directory")
 	fs.StringVar(&cfg.Workdir, "workdir", "", "working directory")
 	fs.BoolVar(&cfg.Verbose, "verbose", false, "enable verbose output")
 	fs.Var(&inputs, "input", "workflow input in key=value form")

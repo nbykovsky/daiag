@@ -31,7 +31,8 @@ func TestAppRunInvokesRunner(t *testing.T) {
 	app := New(&stdout, &stderr, runner)
 	exitCode := app.Run(context.Background(), []string{
 		"run",
-		"--workflow", "workflows/poem.star",
+		"--workflow", "poem",
+		"--workflows-lib", "/shared/workflows",
 		"--input", "feature=poem",
 		"--param", "name=rain",
 		"--param", "mode=fast",
@@ -45,8 +46,11 @@ func TestAppRunInvokesRunner(t *testing.T) {
 	if !runner.called {
 		t.Fatal("runner was not called")
 	}
-	if runner.cfg.Workflow != "workflows/poem.star" {
-		t.Fatalf("workflow = %q, want %q", runner.cfg.Workflow, "workflows/poem.star")
+	if runner.cfg.Workflow != "poem" {
+		t.Fatalf("workflow = %q, want %q", runner.cfg.Workflow, "poem")
+	}
+	if runner.cfg.WorkflowsLib != "/shared/workflows" {
+		t.Fatalf("workflows lib = %q, want %q", runner.cfg.WorkflowsLib, "/shared/workflows")
 	}
 	if runner.cfg.Workdir != "/tmp/work" {
 		t.Fatalf("workdir = %q, want %q", runner.cfg.Workdir, "/tmp/work")
@@ -72,7 +76,7 @@ func TestAppRunMissingWorkdir(t *testing.T) {
 	app := New(&stdout, &stderr, &fakeRunner{})
 	exitCode := app.Run(context.Background(), []string{
 		"run",
-		"--workflow", "workflows/poem.star",
+		"--workflow", "poem",
 	})
 
 	if exitCode != 2 {
@@ -91,7 +95,7 @@ func TestAppRunKeepsParamAsInputAlias(t *testing.T) {
 	app := New(&stdout, &stderr, runner)
 	exitCode := app.Run(context.Background(), []string{
 		"run",
-		"--workflow", "workflows/poem.star",
+		"--workflow", "poem",
 		"--workdir", "/tmp/work",
 		"--param", "name=rain",
 	})
@@ -114,7 +118,7 @@ func TestAppRunRejectsConflictingInputAndParam(t *testing.T) {
 	app := New(&stdout, &stderr, &fakeRunner{})
 	exitCode := app.Run(context.Background(), []string{
 		"run",
-		"--workflow", "workflows/poem.star",
+		"--workflow", "poem",
 		"--input", "name=rain",
 		"--param", "name=snow",
 	})
@@ -134,7 +138,7 @@ func TestAppRunRejectsInvalidParam(t *testing.T) {
 	app := New(&stdout, &stderr, &fakeRunner{})
 	exitCode := app.Run(context.Background(), []string{
 		"run",
-		"--workflow", "workflows/poem.star",
+		"--workflow", "poem",
 		"--param", "invalid",
 	})
 
@@ -153,7 +157,7 @@ func TestAppRunPropagatesRunnerError(t *testing.T) {
 	app := New(&stdout, &stderr, &fakeRunner{err: errors.New("boom")})
 	exitCode := app.Run(context.Background(), []string{
 		"run",
-		"--workflow", "workflows/poem.star",
+		"--workflow", "poem",
 		"--workdir", "/tmp/work",
 	})
 

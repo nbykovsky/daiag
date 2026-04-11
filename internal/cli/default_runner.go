@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	claudeexec "daiag/internal/executor/claude"
 	codexexec "daiag/internal/executor/codex"
@@ -28,17 +29,20 @@ func (r workflowRunner) Run(ctx context.Context, cfg RunConfig) error {
 		return err
 	}
 
-	workflowPath, err := filepath.Abs(cfg.Workflow)
+	workflowsLib, err := resolveWorkflowsLib(cfg.WorkflowsLib)
 	if err != nil {
-		return fmt.Errorf("resolve workflow path: %w", err)
+		return err
 	}
-	workflowBaseDir := filepath.Dir(workflowPath)
+	workflowPath, err := starlarkdsl.ResolveWorkflowID(workflowsLib, cfg.Workflow)
+	if err != nil {
+		return err
+	}
 
 	inputs := runConfigInputs(cfg)
 	loader := starlarkdsl.Loader{
 		Params:  cfg.Params,
 		Inputs:  inputs,
-		BaseDir: workflowBaseDir,
+		BaseDir: workflowsLib,
 	}
 	wf, err := loader.Load(workflowPath)
 	if err != nil {
@@ -56,11 +60,66 @@ func (r workflowRunner) Run(ctx context.Context, cfg RunConfig) error {
 
 	return engine.Run(ctx, runtime.RunInput{
 		Workflow:     wf,
-		WorkflowPath: cfg.Workflow,
-		BaseDir:      workflowBaseDir,
+		WorkflowPath: workflowPath,
+		BaseDir:      workflowsLib,
 		Workdir:      workdir,
 		Inputs:       anyInputs(inputs),
 	})
+}
+
+func resolveWorkflowsLib(path string) (string, error) {
+	if path != "" {
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			return "", fmt.Errorf("resolve --workflows-lib: %w", err)
+		}
+		info, err := os.Stat(absPath)
+		if err != nil {
+			return "", fmt.Errorf("--workflows-lib %q: %w", absPath, err)
+		}
+		if !info.IsDir() {
+			return "", fmt.Errorf("--workflows-lib %q is not a directory", absPath)
+		}
+		return absPath, nil
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("get current directory: %w", err)
+	}
+	projectDir, err := findProjectRoot(cwd)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(projectDir, ".daiag", "workflows"), nil
+}
+
+func findProjectRoot(startDir string) (string, error) {
+	dir, err := filepath.Abs(startDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve current directory: %w", err)
+	}
+	walked := []string{}
+	for {
+		walked = append(walked, dir)
+		daiagDir := filepath.Join(dir, ".daiag")
+		info, err := os.Stat(daiagDir)
+		if err == nil {
+			if info.IsDir() {
+				return dir, nil
+			}
+			return "", fmt.Errorf("default workflows library requires %q to be a directory", daiagDir)
+		}
+		if !os.IsNotExist(err) {
+			return "", fmt.Errorf("stat %q: %w", daiagDir, err)
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("--workflows-lib omitted and no .daiag directory found from %q; walked: %s", startDir, strings.Join(walked, ", "))
+		}
+		dir = parent
+	}
 }
 
 func resolveWorkdir(path string) (string, error) {
