@@ -317,6 +317,75 @@ wf = workflow(
 	}
 }
 
+func TestLoaderLoadsProjectdirFromCallingModule(t *testing.T) {
+	projectDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectDir, ".daiag"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.daiag): %v", err)
+	}
+	workflowDir := filepath.Join(projectDir, ".daiag", "workflows")
+	writeFile(t, filepath.Join(workflowDir, "agents", "writer.md"), `Write "${POEM_PATH}".`)
+	writeFile(t, filepath.Join(workflowDir, "lib", "paths.star"), `
+project_root = projectdir()
+
+def poem_path():
+    return format("{project}/docs/poem.md", project = project_root)
+`)
+	workflowPath := filepath.Join(workflowDir, "workflow.star")
+	writeFile(t, workflowPath, `
+load("lib/paths.star", "poem_path")
+
+wf = workflow(
+    id = "poem",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        task(
+            id = "write_poem",
+            prompt = template_file("agents/writer.md", vars = {"POEM_PATH": poem_path()}),
+            artifacts = {"poem": artifact(poem_path())},
+            result_keys = ["ok"],
+        ),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: workflowDir}
+	wf, err := loader.Load(workflowPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	task := wf.Steps[0].(*workflow.Task)
+	expr, ok := task.Artifacts["poem"].(workflow.FormatExpr)
+	if !ok {
+		t.Fatalf("artifact poem = %T, want workflow.FormatExpr", task.Artifacts["poem"])
+	}
+	project, ok := expr.Args["project"].(workflow.Literal)
+	if !ok {
+		t.Fatalf("format project arg = %T, want workflow.Literal", expr.Args["project"])
+	}
+	if project.Value != projectDir {
+		t.Fatalf("projectdir() = %q, want %q", project.Value, projectDir)
+	}
+}
+
+func TestLoaderRejectsProjectdirOutsideProject(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, workflowPath, `
+project_root = projectdir()
+
+wf = workflow(id = "bad", steps = [])
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `no .daiag directory found`) {
+		t.Fatalf("Load() error = %v, want projectdir error", err)
+	}
+	if !contains(err.Error(), `pass the project path as an explicit workflow input instead`) {
+		t.Fatalf("Load() error = %v, want explicit input suggestion", err)
+	}
+}
+
 func TestLoaderRejectsDuplicateWorkflowInputs(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")

@@ -144,6 +144,7 @@ func (l Loader) predeclared() starlark.StringDict {
 		"loop_iter":    starlark.NewBuiltin("loop_iter", l.builtinLoopIter),
 		"input":        starlark.NewBuiltin("input", l.builtinInput),
 		"workdir":      starlark.NewBuiltin("workdir", l.builtinWorkdir),
+		"projectdir":   starlark.NewBuiltin("projectdir", l.builtinProjectdir),
 		"template_file": starlark.NewBuiltin(
 			"template_file",
 			l.builtinTemplateFile,

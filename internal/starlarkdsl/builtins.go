@@ -2,7 +2,9 @@ package starlarkdsl
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"daiag/internal/workflow"
 
@@ -236,6 +238,21 @@ func (l Loader) builtinWorkdir(_ *starlark.Thread, builtin *starlark.Builtin, ar
 		return nil, err
 	}
 	return &workdirValue{}, nil
+}
+
+func (l Loader) builtinProjectdir(thread *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	if err := starlark.UnpackArgs(builtin.Name(), args, kwargs); err != nil {
+		return nil, err
+	}
+	modulePath, err := currentCallerModulePath(thread)
+	if err != nil {
+		return nil, err
+	}
+	projectDir, err := findProjectDir(modulePath)
+	if err != nil {
+		return nil, err
+	}
+	return starlark.String(projectDir), nil
 }
 
 func (l Loader) builtinTemplateFile(thread *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -578,5 +595,30 @@ func unpackValueExpr(value starlark.Value) (workflow.ValueExpr, error) {
 		return workflow.WorkdirRef{}, nil
 	default:
 		return nil, fmt.Errorf("expected string, int, format, path_ref, json_ref, loop_iter, input, or workdir, got %s", value.Type())
+	}
+}
+
+func findProjectDir(modulePath string) (string, error) {
+	dir := filepath.Dir(modulePath)
+	walked := []string{}
+	for {
+		walked = append(walked, dir)
+		daiagDir := filepath.Join(dir, ".daiag")
+		info, err := os.Stat(daiagDir)
+		if err == nil {
+			if info.IsDir() {
+				return dir, nil
+			}
+			return "", fmt.Errorf("projectdir() called from %q: %q is not a directory", modulePath, daiagDir)
+		}
+		if !os.IsNotExist(err) {
+			return "", fmt.Errorf("projectdir() called from %q: stat %q: %w", modulePath, daiagDir, err)
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("projectdir() called from %q but no .daiag directory found; walked: %s; pass the project path as an explicit workflow input instead", modulePath, strings.Join(walked, ", "))
+		}
+		dir = parent
 	}
 }
