@@ -26,8 +26,6 @@ Before writing any file, ask the user for these if not already stated:
 
 Do not guess about any of these. Ask one focused question if the answer is unclear.
 
-`name` and `workdir` may be declared as mandatory `param(...)` values when the workflow is a top-level CLI entry point — do not ask about them separately.
-
 ## File and Naming Conventions
 
 - All workflow files use underscores in filenames and IDs: `spec_refinement.star`, not `spec-refinement.star`
@@ -43,8 +41,8 @@ Do not guess about any of these. Ask one focused question if the answer is uncle
 Rules:
 
 1. Define tasks inline in the `.star` file as helper functions returning `task(...)`.
-2. Always declare `name` and `workdir` as the first two `param(...)` calls for top-level workflows.
-3. For reusable subworkflows, use `workflow(inputs = [...])` and `input(...)` instead of `param(...)`.
+2. Declare all runtime inputs with `input(...)` and list them in `workflow(inputs = [...])` — this applies to both top-level and reusable workflows.
+3. Use `param(...)` only when explicitly maintaining compatibility with an existing workflow that already uses it. Do not use `param(...)` in new workflows.
 4. Compute derived paths inline using `format(...)`, rooted under the appropriate base path.
 5. Set `default_executor` on the workflow unless tasks all declare their own executor.
 6. Default executor is `{"cli": "codex", "model": "gpt-5.4"}` unless the caller requires otherwise.
@@ -54,10 +52,9 @@ Rules:
 Example entry file with inline tasks:
 
 ```python
-name = param("name")
-workdir = param("workdir")
-draft_path = format("{workdir}/{name}/draft.md", workdir = workdir, name = name)
-review_path = format("{workdir}/{name}/review.md", workdir = workdir, name = name)
+name = input("name")
+draft_path = format("drafts/{name}/draft.md", name = name)
+review_path = format("drafts/{name}/review.md", name = name)
 
 def write_draft_task(step_id, topic, draft_path):
     return task(
@@ -83,6 +80,7 @@ def review_draft_task(step_id, draft_path, review_path):
 
 wf = workflow(
     id = "my_workflow",
+    inputs = ["name"],
     default_executor = {"cli": "codex", "model": "gpt-5.4"},
     steps = [
         write_draft_task("write_draft_main", topic = name, draft_path = draft_path),
@@ -156,7 +154,7 @@ Do not add vague instructions such as "handle appropriately" when the task can b
 ## Path Construction
 
 - Use `format(...)` directly in the workflow entry file.
-- Group related path `format(...)` calls near the top, after `param(...)`/`input(...)` declarations.
+- Group related path `format(...)` calls near the top, after `input(...)` declarations.
 - Keep path patterns simple and predictable.
 - Do not call `loop_iter(...)` unless you need per-iteration file names.
 
@@ -190,7 +188,7 @@ repeat_until(
 Any workflow can be reused as a subworkflow. Use `subworkflow(...)` to compose workflows.
 
 Reusable subworkflows must:
-- Use `workflow(inputs = [...])` and `input(...)` — not `param(...)`
+- Use `workflow(inputs = [...])` and `input(...)`
 - Declare `output_artifacts` and/or `output_results` for values the parent will reference
 
 Example reusable subworkflow (`spec_refinement.star`):

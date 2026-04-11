@@ -66,7 +66,7 @@ The codebase should stay small, explicit, and easy to change.
 - Keep execution sequential in v1.
 - Prefer path-driven prompts over prompts that derive paths from names.
 - When in doubt about workflow structure, follow
-  `examples/development-workflow/workflows/feature_development.star` before introducing a
+  `examples/development-workflow/workflows/feature-development.star` before introducing a
   new pattern.
 
 ## Testing
