@@ -75,10 +75,10 @@ It does not add:
 
 ### Entry File
 
-The entry workflow file is the file passed to:
+The entry workflow file is resolved from the workflow ID passed to:
 
 ```sh
-daiag run --workflow <path>
+daiag run --workflow <workflow-id> --workflows-lib <dir>
 ```
 
 The entry file must define top-level `wf`.
@@ -124,8 +124,8 @@ No custom forms such as `import`, `include`, or wildcard imports should be added
 
 Example:
 
-- entry file: `examples/poem/workflows/poem.star`
-- loaded module: `load("lib/tasks.star", "write_poem_task")`
+- entry file: `examples/poem/workflows/poem/poem.star`
+- loaded module: `load("../lib/tasks.star", "write_poem_task")`
 - resolved file: `examples/poem/workflows/lib/tasks.star`
 
 This is the least surprising behavior for Starlark users and makes modules relocatable.
@@ -136,7 +136,7 @@ Loaded module paths should:
 
 - be local filesystem paths only
 - end in `.star`
-- resolve to a canonical path under the workflow base directory
+- resolve to a canonical path under the workflows library root
 
 Reject:
 
@@ -331,7 +331,7 @@ Example:
 ```text
 load workflow: examples/poem/workflows/lib/tasks.star: missing exported symbol "review_poem_task"
 import chain:
-  examples/poem/workflows/poem.star
+  examples/poem/workflows/poem/poem.star
   examples/poem/workflows/lib/tasks.star
 ```
 

@@ -4,6 +4,11 @@
 
 This document specifies planned subworkflow support for `daiag`.
 
+Note: this is a historical implementation design. The path-style subworkflow
+reference rules in this document have been superseded by
+`docs/workflows-lib-design.md` and `docs/workflow-language.md`, where
+`subworkflow(workflow = ...)` accepts workflow IDs only.
+
 Subworkflows let one workflow compose other workflows as reusable components.
 The goal is to make larger agent processes easier to build without flattening
 every step into one large entry workflow file.

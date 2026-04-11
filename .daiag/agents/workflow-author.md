@@ -226,7 +226,7 @@ Parent wiring:
 ```python
 subworkflow(
     id = "spec_refinement",
-    workflow = "../spec_refinement/spec_refinement.star",
+    workflow = "spec_refinement",
     inputs = {
         "feature_dir": feature_dir,
         "spec_path": spec_path,
@@ -281,8 +281,9 @@ Rules:
 
 ## Module Loading
 
-- Load paths are relative to the workflow entry file.
+- Load paths are relative to the Starlark module that calls `load(...)`.
 - Load paths must end with `.star`.
+- Load paths must remain under the `.daiag/workflows/` library root.
 - Do not load from `.daiag/tasks/` — tasks are inline.
 - Do not create a `lib/` module unless at least two workflow files would share it.
 

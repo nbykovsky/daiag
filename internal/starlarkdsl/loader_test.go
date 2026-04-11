@@ -173,11 +173,12 @@ func TestLoaderLoadsPoemExampleWorkflow(t *testing.T) {
 		t.Fatalf("Getwd(): %v", err)
 	}
 	repoRoot := filepath.Clean(filepath.Join(wd, "..", ".."))
-	workflowPath := filepath.Join(repoRoot, "examples", "poem", "workflows", "poem.star")
+	workflowsLib := filepath.Join(repoRoot, "examples", "poem", "workflows")
+	workflowPath := filepath.Join(workflowsLib, "poem", "poem.star")
 
 	loader := Loader{
 		Params:  map[string]string{"name": "rain"},
-		BaseDir: repoRoot,
+		BaseDir: workflowsLib,
 	}
 
 	wf, err := loader.Load(workflowPath)
@@ -186,6 +187,32 @@ func TestLoaderLoadsPoemExampleWorkflow(t *testing.T) {
 	}
 	if wf.ID != "poem" {
 		t.Fatalf("workflow ID = %q, want %q", wf.ID, "poem")
+	}
+}
+
+func TestLoaderLoadsNewPoemExampleWorkflow(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd(): %v", err)
+	}
+	repoRoot := filepath.Clean(filepath.Join(wd, "..", ".."))
+	workflowsLib := filepath.Join(repoRoot, "examples", "new_poem", "workflows")
+	workflowPath := filepath.Join(workflowsLib, "new_poem", "new_poem.star")
+
+	loader := Loader{
+		Params: map[string]string{
+			"topic":      "starlight",
+			"line_count": "6",
+		},
+		BaseDir: workflowsLib,
+	}
+
+	wf, err := loader.Load(workflowPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if wf.ID != "new_poem" {
+		t.Fatalf("workflow ID = %q, want %q", wf.ID, "new_poem")
 	}
 }
 

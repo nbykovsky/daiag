@@ -14,7 +14,7 @@ The poem example shows the main v1 workflow pattern:
 
 Files:
 
-- workflow: `examples/poem/workflows/poem.star`
+- workflow: `examples/poem/workflows/poem/poem.star`
 - workflow helpers:
   - `examples/poem/workflows/lib/paths.star`
   - `examples/poem/workflows/lib/tasks.star`
@@ -27,7 +27,7 @@ Files:
 Run it from the repository root:
 
 ```sh
-go run ./cmd/daiag run --workflow examples/poem/workflows/poem.star --param name=rain
+go run ./cmd/daiag run --workflow poem --workflows-lib examples/poem/workflows --workdir "$PWD" --param name=rain
 ```
 
 Prerequisites:
@@ -49,19 +49,18 @@ The example workflow uses:
 
 ## New Poem
 
-The new poem example shows a single reusable task loaded from `.daiag/tasks`.
+The new poem example shows a single inline task with a sibling prompt template.
 
 Files:
 
 - example overview: `examples/new_poem/README.md`
-- workflow: `examples/new_poem/workflows/poem.star`
-- reusable task: `.daiag/tasks/write_topic_poem.star`
-- reusable prompt: `.daiag/tasks/write_topic_poem.md`
+- workflow: `examples/new_poem/workflows/new_poem/new_poem.star`
+- prompt: `examples/new_poem/workflows/new_poem/new_poem.md`
 
 Run it from the repository root:
 
 ```sh
-go run ./cmd/daiag run --workflow examples/new_poem/workflows/poem.star --param topic=starlight --param line_count=6
+go run ./cmd/daiag run --workflow new_poem --workflows-lib examples/new_poem/workflows --workdir "$PWD" --param topic=starlight --param line_count=6
 ```
 
 Prerequisites:
@@ -80,7 +79,7 @@ agent pipeline inspired by `ib-broker-trading`.
 Files:
 
 - example overview: `examples/development-workflow/README.md`
-- workflow: `examples/development-workflow/workflows/feature-development.star`
+- workflow: `examples/development-workflow/workflows/feature-development/feature-development.star`
 - agents: `examples/development-workflow/agents/`
 
 Important note:

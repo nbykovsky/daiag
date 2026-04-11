@@ -30,24 +30,46 @@ wf = workflow(
 )
 ```
 
-## Entry File
+## Entry Workflow
 
-The file passed to the CLI is the entry workflow file.
+The workflow ID passed to the CLI resolves to the entry workflow file:
+
+```text
+<workflows-lib>/<workflow-id>/<workflow-id>.star
+```
 
 Example:
 
 ```sh
-daiag run --workflow examples/development-workflow/workflows/feature-development.star --workdir /tmp/daiag-run --input name=indicators
+daiag run --workflow feature-development --workflows-lib examples/development-workflow/workflows --workdir /tmp/daiag-run --input name=indicators
 ```
 
 The entry file must define a top-level variable named `wf`.
 
 Rules:
 
+- `--workflow` must be a workflow ID matching `[A-Za-z0-9_-]+`
+- workflow IDs must not contain path separators or end in `.star`
 - `wf` must exist in the entry file
 - `wf` must be created by `workflow(...)`
 - loaded helper modules must not define top-level `wf`
 - files referenced by `subworkflow(...)` must define top-level `wf`
+
+## Workflows Library
+
+Workflow libraries are directories containing workflow subdirectories:
+
+```text
+<workflow-id>/<workflow-id>.star
+```
+
+The CLI accepts `--workflows-lib <dir>` to choose a library. If omitted, the
+default is `<projectdir>/.daiag/workflows`, where `<projectdir>` is found by
+walking up from the process current working directory until a `.daiag/`
+directory is found.
+
+Relative `--workflows-lib` values are resolved from the process current working
+directory.
 
 ## Language Model
 
@@ -225,7 +247,7 @@ Semantics:
 
 ## `subworkflow(...)`
 
-Runs another workflow file as one parent workflow step.
+Runs another workflow ID as one parent workflow step.
 
 Required fields:
 
@@ -241,7 +263,7 @@ Example:
 ```python
 subworkflow(
     id = "spec_refinement",
-    workflow = "spec-refinement.star",
+    workflow = "spec-refinement",
     inputs = {
         "feature_dir": feature_dir,
         "prd_path": format("{dir}/prd.md", dir = feature_dir),
@@ -253,8 +275,9 @@ subworkflow(
 Rules:
 
 - `id` must be non-empty
-- `workflow` must be a local `.star` workflow file under the workflow base directory
-- relative workflow paths resolve from the Starlark module where `subworkflow(...)` appears
+- `workflow` must be a workflow ID matching `[A-Za-z0-9_-]+`
+- `workflow` IDs resolve to `<workflows-lib>/<id>/<id>.star`
+- path-style values such as `child.star`, `../child/child.star`, or `/tmp/child.star` are invalid
 - `inputs` defaults to `{}`
 - every child workflow input must be bound by the parent
 - parent bindings may use literals, `input(...)`, `format(...)`, `path_ref(...)`, `json_ref(...)`, and `loop_iter(...)`
@@ -401,7 +424,7 @@ wf = workflow(
 CLI:
 
 ```sh
-daiag run --workflow examples/development-workflow/workflows/feature-development.star --workdir /tmp/daiag-run --input name=indicators
+daiag run --workflow feature-development --workflows-lib examples/development-workflow/workflows --workdir /tmp/daiag-run --input name=indicators
 ```
 
 Rules:
@@ -457,7 +480,7 @@ name = param("name")
 CLI:
 
 ```sh
-daiag run --workflow examples/poem/workflows/poem.star --workdir /tmp/daiag-run --param name=rain
+daiag run --workflow poem --workflows-lib examples/poem/workflows --workdir /tmp/daiag-run --param name=rain
 ```
 
 Rules:
@@ -578,12 +601,13 @@ Rules:
 - load paths must be local filesystem paths
 - load paths must end with `.star`
 - load paths are resolved relative to the importing module
-- load paths must remain under the workflow base directory
+- load paths must remain under the workflows library root
 - URLs are not allowed
 - load cycles are rejected
 
-For CLI runs, the workflow base directory is the entry workflow file's
-directory. It is separate from `--workdir`.
+For CLI runs, the workflows library root is the `--workflows-lib` directory, or
+the default `<projectdir>/.daiag/workflows` directory when `--workflows-lib` is
+omitted. It is separate from `--workdir`.
 
 Loaded modules may export:
 
@@ -639,12 +663,16 @@ Workflow loading and validation reject the following cases.
 - missing top-level `wf`
 - top-level `wf` is not a `workflow(...)`
 - missing CLI parameter required by `param(...)`
+- invalid workflow ID
+- workflow ID file missing from the workflows library
+- explicit `--workflows-lib` path missing or not a directory
+- default workflows library cannot be found because no `.daiag/` ancestor exists
 
 ### Module Errors
 
 - missing loaded file
 - invalid load path
-- load path outside the workflow base directory
+- load path outside the workflows library root
 - load path without `.star` suffix
 - load cycle
 - loaded module defines top-level `wf`
@@ -689,7 +717,8 @@ Workflow loading and validation reject the following cases.
 
 ### Subworkflow Errors
 
-- subworkflow path missing, invalid, outside the workflow base directory, or not ending in `.star`
+- subworkflow workflow ID missing, invalid, or missing from the workflows library
+- path-style subworkflow references such as `child.star` or `../child/child.star`
 - subworkflow file missing top-level `wf`
 - subworkflow file cycle
 - `param(...)` used in a subworkflow file or one of its helper modules
@@ -710,14 +739,16 @@ Workflow loading and validation reject the following cases.
 The current CLI supports:
 
 ```sh
-daiag run --workflow <path> --workdir <absolute-path> [--input key=value] [--param key=value] [--verbose]
+daiag run --workflow <workflow-id> --workdir <absolute-path> [--workflows-lib <dir>] [--input key=value] [--param key=value] [--verbose]
 ```
 
 Rules:
 
+- `--workflow` is required and must be a workflow ID
 - `--workdir` is required
 - `--workdir` must be an absolute path
 - the CLI creates `--workdir` if it does not exist
+- `--workflows-lib` is optional and defaults to `<projectdir>/.daiag/workflows`
 
 There is no dedicated `daiag validate` command today.
 
@@ -726,14 +757,14 @@ There is no dedicated `daiag validate` command today.
 The current validation path is:
 
 ```sh
-go run ./cmd/daiag run --workflow examples/development-workflow/workflows/feature-development.star --workdir /tmp/daiag-run --input name=indicators
+go run ./cmd/daiag run --workflow feature-development --workflows-lib examples/development-workflow/workflows --workdir /tmp/daiag-run --input name=indicators
 ```
 
 or, after building:
 
 ```sh
 go build ./cmd/daiag
-./daiag run --workflow examples/development-workflow/workflows/feature-development.star --workdir /tmp/daiag-run --input name=indicators
+./daiag run --workflow feature-development --workflows-lib examples/development-workflow/workflows --workdir /tmp/daiag-run --input name=indicators
 ```
 
 Behavior:
@@ -767,7 +798,7 @@ wf = workflow(
     steps = [
         subworkflow(
             id = "spec_refinement",
-            workflow = "spec-refinement.star",
+            workflow = "spec-refinement",
             inputs = {
                 "feature_dir": feature_dir,
                 "prd_path": format("{dir}/prd.md", dir = feature_dir),

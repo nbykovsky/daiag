@@ -40,8 +40,8 @@ V1 does not include:
 The expected usage pattern is:
 
 1. user writes prompt files such as `agents/poem-writer.md`
-2. user writes a workflow file such as `workflows/poem.star`
-3. user runs the CLI with the workflow path and input params
+2. user writes a workflow file such as `workflows/poem/poem.star`
+3. user runs the CLI with the workflow ID and input params
 4. runner evaluates the workflow and executes steps in order
 5. runner prints progress to the screen while tasks run
 6. workflow-created files remain in the workspace for later steps and for the user
@@ -53,17 +53,19 @@ The expected usage pattern is:
 V1 exposes one command:
 
 ```sh
-daiag run --workflow workflows/poem.star --param name=rain
+daiag run --workflow poem --workflows-lib workflows --workdir "$PWD" --param name=rain
 ```
 
 ### Flags
 
-- `--workflow <path>`
-  Required. Path to the Starlark workflow file.
+- `--workflow <workflow-id>`
+  Required. Workflow ID resolved as `<workflows-lib>/<id>/<id>.star`.
+- `--workflows-lib <dir>`
+  Optional. Workflow library directory. Defaults to `<projectdir>/.daiag/workflows`.
 - `--param <key=value>`
   Optional and repeatable. Supplies workflow parameters used by `param(...)`.
 - `--workdir <path>`
-  Optional. Working directory for workflow execution. If omitted, use the current directory.
+  Required. Working directory for workflow execution.
 - `--verbose`
   Optional. Prints additional details such as rendered prompt source path and artifact paths.
 
@@ -78,9 +80,9 @@ daiag run --workflow workflows/poem.star --param name=rain
 
 ### Path Resolution
 
-- the workflow file path is resolved from the current shell directory
-- relative paths inside the workflow are resolved from `--workdir` when provided
-- otherwise relative paths are resolved from the current shell directory
+- the workflow ID is resolved from the workflows library
+- relative `--workflows-lib` paths are resolved from the current shell directory
+- artifact paths inside the workflow are resolved from `--workdir`
 
 ## Screen Output
 
@@ -102,7 +104,7 @@ By default, the runner prints its own progress events rather than streaming raw 
 ### Example
 
 ```text
-[12:00:01] workflow start id=poem file=workflows/poem.star
+[12:00:01] workflow start id=poem file=workflows/poem/poem.star
 [12:00:01] step start id=write_poem cli=codex model=gpt-5.4
 [12:00:08] step done id=write_poem artifacts=poem
 [12:00:08] loop iter id=extend_until_ready n=1

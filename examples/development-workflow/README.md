@@ -44,7 +44,7 @@ Because of that, this example mixes two styles:
 
 ## Workflow File
 
-- `examples/development-workflow/workflows/feature-development.star`
+- `examples/development-workflow/workflows/feature-development/feature-development.star`
 
 ## Agents
 

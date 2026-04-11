@@ -4,6 +4,11 @@
 
 This document breaks `docs/subworkflow-design.md` into implementation tasks.
 
+Note: this is a historical task breakdown. Path-style subworkflow reference
+tasks here have been superseded by `docs/workflows-lib-design.md` and
+`docs/workflow-language.md`; current `subworkflow(workflow = ...)` references
+use workflow IDs only.
+
 Each task must leave the repository buildable and testable.
 Do not batch multiple tasks into one commit.
 
