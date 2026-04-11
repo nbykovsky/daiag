@@ -20,7 +20,23 @@ type workflowRunner struct {
 }
 
 func NewDefault(stdout, stderr io.Writer) *App {
-	return New(stdout, stderr, workflowRunner{stdout: stdout})
+	return New(stdout, stderr, workflowRunner{stdout: stdout}, workflowValidator{})
+}
+
+type workflowValidator struct{}
+
+func (v workflowValidator) Validate(_ context.Context, cfg ValidateConfig) error {
+	workflowsLib, err := resolveWorkflowsLib(cfg.WorkflowsLib)
+	if err != nil {
+		return err
+	}
+	workflowPath, err := starlarkdsl.ResolveWorkflowID(workflowsLib, cfg.Workflow)
+	if err != nil {
+		return err
+	}
+	loader := starlarkdsl.Loader{BaseDir: workflowsLib}
+	_, err = loader.Load(workflowPath)
+	return err
 }
 
 func (r workflowRunner) Run(ctx context.Context, cfg RunConfig) error {

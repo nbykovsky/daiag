@@ -11,19 +11,26 @@ import (
 
 const usageText = `Usage:
   daiag run --workflow <workflow-id> --workdir <path> [--workflows-lib <dir>] [--input key=value] [--param key=value] [--verbose]
+  daiag validate --workflow <workflow-id> [--workflows-lib <dir>]
 
 Commands:
-  run     Execute a workflow
+  run       Execute a workflow
+  validate  Parse and validate a workflow without executing it
 `
 
 type Runner interface {
 	Run(context.Context, RunConfig) error
 }
 
+type Validator interface {
+	Validate(context.Context, ValidateConfig) error
+}
+
 type App struct {
-	stdout io.Writer
-	stderr io.Writer
-	runner Runner
+	stdout    io.Writer
+	stderr    io.Writer
+	runner    Runner
+	validator Validator
 }
 
 type RunConfig struct {
@@ -35,11 +42,17 @@ type RunConfig struct {
 	Verbose      bool
 }
 
-func New(stdout, stderr io.Writer, runner Runner) *App {
+type ValidateConfig struct {
+	Workflow     string
+	WorkflowsLib string
+}
+
+func New(stdout, stderr io.Writer, runner Runner, validator Validator) *App {
 	return &App{
-		stdout: stdout,
-		stderr: stderr,
-		runner: runner,
+		stdout:    stdout,
+		stderr:    stderr,
+		runner:    runner,
+		validator: validator,
 	}
 }
 
@@ -61,6 +74,19 @@ func (a *App) Run(ctx context.Context, args []string) int {
 			fmt.Fprintf(a.stderr, "error: %v\n", err)
 			return 1
 		}
+		return 0
+	case "validate":
+		cfg, err := parseValidateArgs(args[1:])
+		if err != nil {
+			fmt.Fprintf(a.stderr, "error: %v\n\n", err)
+			a.printUsage(a.stderr)
+			return 2
+		}
+		if err := a.validator.Validate(ctx, cfg); err != nil {
+			fmt.Fprintf(a.stderr, "error: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(a.stdout, "workflow %q is valid\n", cfg.Workflow)
 		return 0
 	case "help", "-h", "--help":
 		a.printUsage(a.stdout)
@@ -131,6 +157,24 @@ func parseRunArgs(args []string) (RunConfig, error) {
 	cfg.Inputs = cloneStringMap(merged)
 	cfg.Params = cloneStringMap(merged)
 
+	return cfg, nil
+}
+
+func parseValidateArgs(args []string) (ValidateConfig, error) {
+	var cfg ValidateConfig
+	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.StringVar(&cfg.Workflow, "workflow", "", "workflow ID")
+	fs.StringVar(&cfg.WorkflowsLib, "workflows-lib", "", "workflow library directory")
+	if err := fs.Parse(args); err != nil {
+		return ValidateConfig{}, err
+	}
+	if fs.NArg() > 0 {
+		return ValidateConfig{}, fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+	if cfg.Workflow == "" {
+		return ValidateConfig{}, errors.New("--workflow is required")
+	}
 	return cfg, nil
 }
 

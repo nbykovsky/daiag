@@ -13,6 +13,7 @@ daiag <command> [flags]
 Commands:
 
 - `run` — execute a workflow
+- `validate` — parse and validate a workflow without executing it
 - `help` — print usage
 
 ## `daiag run`
@@ -119,6 +120,48 @@ Run from an experiment library with a relative path:
 
 ```sh
 daiag run --workflow draft --workflows-lib ./experiments --workdir /output
+```
+
+## `daiag validate`
+
+Loads and validates a workflow without executing any tasks.
+
+```sh
+daiag validate --workflow <workflow-id> [--workflows-lib <dir>]
+```
+
+### Flags
+
+#### `--workflow <workflow-id>` (required)
+
+The workflow ID to validate. Follows the same rules as `daiag run`.
+
+#### `--workflows-lib <dir>` (optional)
+
+Path to the workflows library directory. Follows the same defaulting rules as
+`daiag run`.
+
+### Exit Codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Workflow is valid |
+| 1 | Workflow load or validation error |
+| 2 | Argument error |
+
+### Examples
+
+Validate a workflow from the default library:
+
+```sh
+daiag validate --workflow write_poem
+```
+
+Validate a workflow from an explicit library:
+
+```sh
+daiag validate --workflow feature-development \
+  --workflows-lib examples/development-workflow/workflows
 ```
 
 ## `daiag help`

@@ -268,6 +268,75 @@ func TestResolveWorkflowsLibReportsMissingDefaultProjectRoot(t *testing.T) {
 	}
 }
 
+func TestDefaultRunnerValidatesValidWorkflow(t *testing.T) {
+	workflowsLib := t.TempDir()
+	writeValidateTestWorkflow(t, workflowsLib)
+
+	var stdout, stderr bytes.Buffer
+	app := NewDefault(&stdout, &stderr)
+
+	exitCode := app.Run(context.Background(), []string{
+		"validate",
+		"--workflow", "simple",
+		"--workflows-lib", workflowsLib,
+	})
+
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr=%q)", exitCode, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `workflow "simple" is valid`) {
+		t.Fatalf("stdout = %q, want success message", stdout.String())
+	}
+}
+
+func TestDefaultRunnerValidateRejectsMissingInput(t *testing.T) {
+	workflowsLib := filepath.Join(t.TempDir(), "workflows")
+	writeCLITestWorkflow(t, workflowsLib)
+
+	var stdout, stderr bytes.Buffer
+	app := NewDefault(&stdout, &stderr)
+
+	exitCode := app.Run(context.Background(), []string{
+		"validate",
+		"--workflow", "parent",
+		"--workflows-lib", workflowsLib,
+	})
+
+	if exitCode != 1 {
+		t.Fatalf("exit code = %d, want 1", exitCode)
+	}
+	if !strings.Contains(stderr.String(), `missing workflow input "name"`) {
+		t.Fatalf("stderr = %q, want missing input error", stderr.String())
+	}
+}
+
+func TestDefaultRunnerValidateRejectsUnknownWorkflow(t *testing.T) {
+	workflowsLib := t.TempDir()
+
+	var stdout, stderr bytes.Buffer
+	app := NewDefault(&stdout, &stderr)
+
+	exitCode := app.Run(context.Background(), []string{
+		"validate",
+		"--workflow", "unknown",
+		"--workflows-lib", workflowsLib,
+	})
+
+	if exitCode != 1 {
+		t.Fatalf("exit code = %d, want 1", exitCode)
+	}
+	if !strings.Contains(stderr.String(), "unknown") {
+		t.Fatalf("stderr = %q, want unknown workflow error", stderr.String())
+	}
+}
+
+func writeValidateTestWorkflow(t *testing.T, workflowsLib string) {
+	t.Helper()
+	writeCLITestFile(t, filepath.Join(workflowsLib, "simple", "simple.star"), `
+wf = workflow(id = "simple", steps = [])
+`)
+}
+
 func writeCLITestWorkflow(t *testing.T, workflowsLib string) string {
 	t.Helper()
 

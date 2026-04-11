@@ -12,7 +12,7 @@ func TestAppRunMissingWorkflow(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	app := New(&stdout, &stderr, &fakeRunner{})
+	app := New(&stdout, &stderr, &fakeRunner{}, nil)
 	exitCode := app.Run(context.Background(), []string{"run"})
 
 	if exitCode != 2 {
@@ -28,7 +28,7 @@ func TestAppRunInvokesRunner(t *testing.T) {
 	var stderr bytes.Buffer
 
 	runner := &fakeRunner{}
-	app := New(&stdout, &stderr, runner)
+	app := New(&stdout, &stderr, runner, nil)
 	exitCode := app.Run(context.Background(), []string{
 		"run",
 		"--workflow", "poem",
@@ -73,7 +73,7 @@ func TestAppRunMissingWorkdir(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	app := New(&stdout, &stderr, &fakeRunner{})
+	app := New(&stdout, &stderr, &fakeRunner{}, nil)
 	exitCode := app.Run(context.Background(), []string{
 		"run",
 		"--workflow", "poem",
@@ -92,7 +92,7 @@ func TestAppRunKeepsParamAsInputAlias(t *testing.T) {
 	var stderr bytes.Buffer
 
 	runner := &fakeRunner{}
-	app := New(&stdout, &stderr, runner)
+	app := New(&stdout, &stderr, runner, nil)
 	exitCode := app.Run(context.Background(), []string{
 		"run",
 		"--workflow", "poem",
@@ -115,7 +115,7 @@ func TestAppRunRejectsConflictingInputAndParam(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	app := New(&stdout, &stderr, &fakeRunner{})
+	app := New(&stdout, &stderr, &fakeRunner{}, nil)
 	exitCode := app.Run(context.Background(), []string{
 		"run",
 		"--workflow", "poem",
@@ -135,7 +135,7 @@ func TestAppRunRejectsInvalidParam(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	app := New(&stdout, &stderr, &fakeRunner{})
+	app := New(&stdout, &stderr, &fakeRunner{}, nil)
 	exitCode := app.Run(context.Background(), []string{
 		"run",
 		"--workflow", "poem",
@@ -154,7 +154,7 @@ func TestAppRunPropagatesRunnerError(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	app := New(&stdout, &stderr, &fakeRunner{err: errors.New("boom")})
+	app := New(&stdout, &stderr, &fakeRunner{err: errors.New("boom")}, nil)
 	exitCode := app.Run(context.Background(), []string{
 		"run",
 		"--workflow", "poem",
@@ -166,6 +166,71 @@ func TestAppRunPropagatesRunnerError(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "boom") {
 		t.Fatalf("stderr = %q, want runner error", stderr.String())
+	}
+}
+
+func TestAppValidateMissingWorkflow(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	app := New(&stdout, &stderr, nil, &fakeValidator{})
+	exitCode := app.Run(context.Background(), []string{"validate"})
+	if exitCode != 2 {
+		t.Fatalf("exit code = %d, want 2", exitCode)
+	}
+	if !strings.Contains(stderr.String(), "--workflow is required") {
+		t.Fatalf("stderr = %q, want --workflow error", stderr.String())
+	}
+}
+
+func TestAppValidateInvokesValidator(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	v := &fakeValidator{}
+	app := New(&stdout, &stderr, nil, v)
+	exitCode := app.Run(context.Background(), []string{
+		"validate",
+		"--workflow", "poem",
+		"--workflows-lib", "/shared/workflows",
+	})
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr=%q)", exitCode, stderr.String())
+	}
+	if !v.called {
+		t.Fatal("validator was not called")
+	}
+	if v.cfg.Workflow != "poem" {
+		t.Fatalf("workflow = %q, want %q", v.cfg.Workflow, "poem")
+	}
+	if v.cfg.WorkflowsLib != "/shared/workflows" {
+		t.Fatalf("workflows-lib = %q, want %q", v.cfg.WorkflowsLib, "/shared/workflows")
+	}
+}
+
+func TestAppValidatePropagatesValidatorError(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	app := New(&stdout, &stderr, nil, &fakeValidator{err: errors.New("boom")})
+	exitCode := app.Run(context.Background(), []string{
+		"validate",
+		"--workflow", "poem",
+	})
+	if exitCode != 1 {
+		t.Fatalf("exit code = %d, want 1", exitCode)
+	}
+	if !strings.Contains(stderr.String(), "boom") {
+		t.Fatalf("stderr = %q, want validator error", stderr.String())
+	}
+}
+
+func TestAppValidateSuccessPrintsMessage(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	app := New(&stdout, &stderr, nil, &fakeValidator{})
+	exitCode := app.Run(context.Background(), []string{
+		"validate",
+		"--workflow", "poem",
+	})
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr=%q)", exitCode, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `workflow "poem" is valid`) {
+		t.Fatalf("stdout = %q, want success message", stdout.String())
 	}
 }
 
@@ -182,4 +247,16 @@ func (f *fakeRunner) Run(_ context.Context, cfg RunConfig) error {
 		return f.err
 	}
 	return nil
+}
+
+type fakeValidator struct {
+	called bool
+	cfg    ValidateConfig
+	err    error
+}
+
+func (f *fakeValidator) Validate(_ context.Context, cfg ValidateConfig) error {
+	f.called = true
+	f.cfg = cfg
+	return f.err
 }
