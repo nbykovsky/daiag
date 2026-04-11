@@ -37,8 +37,8 @@ Four distinct directory concepts exist in a workflow run:
 |---|---|---|
 | `workdir` | `--workdir` CLI flag | Artifact output root; executor CWD |
 | `projectdir` | parent of `.daiag/` relative to the calling `.star` module | Path value for reading project source files |
-| Module resolution dir | directory of the importing `.star` module | Starting point for resolving relative `load(...)` and `subworkflow(...)` paths |
-| Module allowed boundary | entry workflow directory | Upper bound for module path validation — load paths must stay under this |
+| Module resolution dir | directory of the importing `.star` module | Starting point for resolving relative `load(...)` paths |
+| Module allowed boundary | workflows library root | Upper bound for module path validation — load paths must stay under this |
 
 `projectdir` is a plain path value available to workflows. It is not the
 module loading base and not the allowed boundary.
