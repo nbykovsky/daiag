@@ -39,6 +39,30 @@ func TestDefaultRunnerRunsInputSubworkflowWorkflow(t *testing.T) {
 	}
 }
 
+func TestDefaultRunnerLoadsWorkflowRelativeToEntryFileNotWorkdir(t *testing.T) {
+	workflowDir := t.TempDir()
+	workdir := t.TempDir()
+	workflowPath := writeCLITestWorkflow(t, workflowDir)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	app := NewDefault(&stdout, &stderr)
+
+	exitCode := app.Run(context.Background(), []string{
+		"run",
+		"--workflow", workflowPath,
+		"--input", "name=rain",
+		"--workdir", workdir,
+	})
+
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr=%q)", exitCode, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "subworkflow done id=child artifacts=spec results=name") {
+		t.Fatalf("stdout missing child subworkflow success:\n%s", stdout.String())
+	}
+}
+
 func TestDefaultRunnerKeepsParamAliasForInputWorkflow(t *testing.T) {
 	workdir := t.TempDir()
 	workflowPath := writeCLITestWorkflow(t, workdir)

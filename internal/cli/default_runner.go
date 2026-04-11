@@ -32,12 +32,13 @@ func (r workflowRunner) Run(ctx context.Context, cfg RunConfig) error {
 	if err != nil {
 		return fmt.Errorf("resolve workflow path: %w", err)
 	}
+	workflowBaseDir := filepath.Dir(workflowPath)
 
 	inputs := runConfigInputs(cfg)
 	loader := starlarkdsl.Loader{
 		Params:  cfg.Params,
 		Inputs:  inputs,
-		BaseDir: workdir,
+		BaseDir: workflowBaseDir,
 	}
 	wf, err := loader.Load(workflowPath)
 	if err != nil {
@@ -56,7 +57,7 @@ func (r workflowRunner) Run(ctx context.Context, cfg RunConfig) error {
 	return engine.Run(ctx, runtime.RunInput{
 		Workflow:     wf,
 		WorkflowPath: cfg.Workflow,
-		BaseDir:      workdir,
+		BaseDir:      workflowBaseDir,
 		Workdir:      workdir,
 		Inputs:       anyInputs(inputs),
 	})
