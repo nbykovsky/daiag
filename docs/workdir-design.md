@@ -30,6 +30,7 @@ This has several problems:
 ## Goals
 
 - Provide `workdir()` as a zero-argument DSL builtin that returns the workdir at runtime.
+- Provide `projectdir()` as a zero-argument DSL builtin that returns the project root at runtime.
 - Resolve relative artifact paths automatically against workdir.
 - Let absolute paths escape workdir for referencing external files.
 - Share the same workdir across all subworkflows in a run.
@@ -118,13 +119,32 @@ wf = workflow(
 )
 ```
 
-### Referencing Files Outside Workdir
+### `projectdir()` Builtin
 
-Use an absolute path anywhere a string expression is accepted:
+A zero-argument DSL builtin that returns the project root at runtime — the
+parent directory of the `.daiag/` folder.
 
 ```python
-# Read a spec that already exists outside the run output
-artifacts = {"spec": artifact("/repos/myproject/docs/spec.md")}
+prd_path = format("{projectdir}/docs/features/{name}/prd.md", projectdir = projectdir(), name = name)
+```
+
+Resolved at load time from the location of the `.daiag/` directory. It is
+stable across runs and does not change with `--workdir`.
+
+It may be used anywhere a string expression is accepted:
+
+- `artifact(format("{projectdir}/...", projectdir = projectdir()))`
+- `template_file("...", vars = {"PRD": format("{p}/docs/prd.md", p = projectdir())})`
+
+Typical use: referencing source files, specs, or PRDs that live in the project
+and are read as inputs rather than written as outputs.
+
+### Referencing Files Outside Both Roots
+
+Use an absolute path for files outside both workdir and projectdir:
+
+```python
+artifacts = {"spec": artifact("/external/data/spec.md")}
 ```
 
 Absolute paths are never modified by the runtime.
@@ -139,7 +159,8 @@ Absolute paths are never modified by the runtime.
 ## Implementation Tasks
 
 1. Add `workdir()` to the set of predeclared DSL builtins in `internal/starlarkdsl`.
-2. Thread `workdir` through the runtime execution context.
-3. Resolve artifact paths at execution time: prepend workdir to relative paths.
-4. Add `--workdir` validation at workflow load time (fail if missing and needed).
-5. Update `docs/workflow-language.md` to document `workdir()` and the resolution rules.
+2. Add `projectdir()` to the set of predeclared DSL builtins; resolve it at load time by walking up from the workflow file until a directory containing `.daiag/` is found.
+3. Thread `workdir` through the runtime execution context.
+4. Resolve artifact paths at execution time: prepend workdir to relative paths.
+5. Add `--workdir` validation at workflow load time (fail if missing and needed).
+6. Update `docs/workflow-language.md` to document `workdir()`, `projectdir()`, and the resolution rules.
