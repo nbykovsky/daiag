@@ -14,8 +14,8 @@ Follow the conventions in [`.daiag/agents/workflow-author.md`](.daiag/agents/wor
 
 1. **Load the guide** — Read `.daiag/agents/workflow-author.md` before writing any file.
 2. **Clarify requirements** — Ask the questions listed in the guide's "Required Clarifications" section. Do not skip any that are unanswered. Ask as one grouped message, not one question at a time.
-3. **Check existing tasks** — List the contents of `.daiag/tasks/` and identify which required steps already have task pairs.
-4. **Report missing tasks** — If any required task pair is missing, report them in the structured format from the guide and stop. Do not write the workflow file. Let the user author the missing tasks (e.g. using the `workflow-task-author` skill) and come back.
+3. **Read the task index** — Read `.daiag/tasks/TASKS.md` to discover available tasks and their helper signatures, artifacts, and result keys.
+4. **Report missing tasks** — Cross-reference required steps against `TASKS.md`. If any are absent, report them in the structured format from the guide and stop. Let the user author the missing tasks (e.g. using the `workflow-task-author` skill) and come back.
 5. **Write the workflow entry file** — Once all tasks exist, create `.daiag/workflows/<id>.star` wiring all tasks together.
 6. **Validate** — Run through the validation checklist in the guide before reporting done.
 

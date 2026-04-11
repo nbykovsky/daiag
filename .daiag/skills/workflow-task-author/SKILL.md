@@ -50,10 +50,11 @@ Optional sections:
 
 ## What You Generate
 
-Write both files directly to `.daiag/tasks/`, then give the user a brief summary of:
-1. What the task does
-2. What it reads and writes
-3. What it returns
+Write all three artifacts, then give the user a brief summary of what the task does, reads, writes, and returns:
+
+1. `.daiag/tasks/<step_name>.star`
+2. `.daiag/tasks/<step_name>.md`
+3. An entry in `.daiag/tasks/TASKS.md` (add or update)
 
 ## Don't Guess
 

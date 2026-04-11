@@ -128,9 +128,10 @@ repeat_until(
 
 ## Missing Tasks
 
-Before writing the workflow entry file, check `.daiag/tasks/` for every step the workflow needs.
+Before writing the workflow entry file, read `.daiag/tasks/TASKS.md` to discover all available tasks and their helper signatures, artifacts, and result keys.
 
-If any required task pair is missing, report them in this format and stop:
+Cross-reference the required workflow steps against the index.
+If any required task is absent from `TASKS.md`, report them in this format and stop:
 
 ```
 Missing tasks — author these before the workflow can be written:
@@ -160,7 +161,8 @@ Do not write the workflow entry file until the user confirms all missing tasks h
 
 Before finishing, verify all of the following:
 
-- every `load(...)` path resolves to an existing file in `.daiag/tasks/`
+- every task used in the workflow has an entry in `.daiag/tasks/TASKS.md`
+- every `load(...)` path matches the step name from `TASKS.md`
 - `name` and `workdir` are declared as `param(...)` — these are always mandatory
 - all derived paths are rooted under `workdir`
 - every task helper is called with all required arguments

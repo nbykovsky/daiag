@@ -227,10 +227,39 @@ Before finishing, verify all of the following:
 
 - The `.star` file should export one helper named `<step_name>_task`.
 - That helper should return one `task(...)` value.
-- That helper should own only the local step contract plus its suffix-based ID construction.
+- That helper should own only the local step contract and its `step_id` passthrough.
 - Do not decide where the task is placed in `steps = [...]`.
 - Do not decide loop structure, branching, or overall workflow order.
 - Do not decide how other modules `load(...)` this task unless the caller asks for that wiring explicitly.
+
+## Task Index
+
+After creating or updating a task pair, update `.daiag/tasks/TASKS.md`.
+
+Each entry must follow this format exactly:
+
+```markdown
+## <step_name>
+
+<one-sentence description of what the task does>
+
+Helper: `<step_name>_task(step_id, <arg1>, <arg2>, ...)`
+
+Inputs:
+- `<arg>` — <what it is> (<type>)
+
+Artifacts:
+- `<artifact_key>` → `<arg_name>`
+
+Returns: `<key1>`, `<key2>`, ...
+```
+
+Rules:
+
+- Add a new `##` section for each new task.
+- Update the existing section when a task's signature, artifacts, or result keys change.
+- Keep entries in the order they were added.
+- Do not remove entries unless the task pair itself is deleted.
 
 ## Questions
 
@@ -238,7 +267,6 @@ If a requested task is underspecified, ask one focused question before writing f
 Do not guess about:
 
 - the step name
-- the suffix naming rule if the caller wants something other than `"<step_name>_" + suffix`
 - whether the prompt should be standalone-minimal or use explicit `Inputs:` and `Outputs:` sections
 - the files the task must read
 - the files the task must create or update
@@ -247,4 +275,9 @@ Do not guess about:
 
 ## Output
 
-When you complete the task, create or update the paired files in `.daiag/tasks` and keep the implementation minimal, explicit, and easy to scan.
+When complete:
+
+1. Create or update `.daiag/tasks/<step_name>.star` and `.daiag/tasks/<step_name>.md`.
+2. Add or update the entry in `.daiag/tasks/TASKS.md`.
+
+Keep the implementation minimal, explicit, and easy to scan.
