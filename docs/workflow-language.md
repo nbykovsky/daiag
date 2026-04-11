@@ -654,9 +654,25 @@ This means:
 - executors run with `--workdir` as their CWD and access root, so absolute
   artifact paths outside `--workdir` depend on executor permissions
 
+Resolution at execution time:
+
+| Expression | Result |
+|---|---|
+| Relative string literal | `filepath.Join(workdir, path)` |
+| `format(...)` resolving to a relative string | `filepath.Join(workdir, resolved)` |
+| Expression containing `workdir()` | already absolute after substitution — used as-is |
+| Absolute string | used as-is |
+
+Relative paths containing `../` are the caller's responsibility; the runtime
+prepends workdir and uses the result as-is.
+
 ## Validation Rules
 
 Workflow loading and validation reject the following cases.
+
+### Startup Errors
+
+- missing `--workdir`
 
 ### Entry File Errors
 
