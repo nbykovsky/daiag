@@ -10,10 +10,10 @@ Requirements:
 4. Preserve every existing paragraph exactly as written — do not edit them.
 5. Save the updated draft back to `${DRAFT_PATH}`.
 
-Return the following JSON with no other text:
+Return JSON only with these keys:
 
-```json
-{"draft_path": "${DRAFT_PATH}", "before_paragraph_count": <integer>, "after_paragraph_count": <integer>}
-```
+- `draft_path` — the value of `${DRAFT_PATH}`
+- `before_paragraph_count` — paragraph count before editing
+- `after_paragraph_count` — paragraph count after appending
 
 Do not wrap the JSON in Markdown fences.

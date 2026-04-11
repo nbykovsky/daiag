@@ -9,10 +9,9 @@ Requirements:
 3. Keep the tone informative and clear.
 4. Save the draft to `${DRAFT_PATH}`.
 
-Return the following JSON with no other text:
+Return JSON only with these keys:
 
-```json
-{"draft_path": "${DRAFT_PATH}", "paragraph_count": 3}
-```
+- `draft_path` — the value of `${DRAFT_PATH}`
+- `paragraph_count` — the number of paragraphs written
 
 Do not wrap the JSON in Markdown fences.

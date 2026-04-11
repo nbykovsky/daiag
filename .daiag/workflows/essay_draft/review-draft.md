@@ -12,10 +12,10 @@ Requirements:
    - line 1: `Outcome: ready` or `Outcome: needs work`
    - line 2: `Paragraph count: <n>`
 
-Return the following JSON with no other text:
+Return JSON only with these keys:
 
-```json
-{"outcome": "<ready or needs_work>", "paragraph_count": <integer>, "review_path": "${REVIEW_PATH}"}
-```
+- `outcome` — `ready` or `needs_work`
+- `paragraph_count` — number of paragraphs counted in the draft
+- `review_path` — the value of `${REVIEW_PATH}`
 
 Do not wrap the JSON in Markdown fences.
