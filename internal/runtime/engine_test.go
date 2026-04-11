@@ -211,6 +211,294 @@ func TestEngineResolvesWorkflowInputs(t *testing.T) {
 	}
 }
 
+func TestEngineRunsSubworkflowAndExposesOutputs(t *testing.T) {
+	baseDir := t.TempDir()
+	writeFile(t, filepath.Join(baseDir, "agents", "child.md"), `literal=${LITERAL} source=${SOURCE_PATH} status=${STATUS}`)
+	writeFile(t, filepath.Join(baseDir, "agents", "consume.md"), `child=${CHILD_PATH} source=${SOURCE_PATH}`)
+
+	prompts := make(map[string]string)
+	engine := Engine{
+		Executors: map[string]Executor{
+			"codex": fakeExecutorFunc(func(_ context.Context, req TaskRequest) (TaskResponse, error) {
+				prompts[req.WorkflowID+"."+req.TaskID] = req.Prompt
+				switch req.WorkflowID + "." + req.TaskID {
+				case "parent.prepare":
+					writeFile(t, filepath.Join(baseDir, "docs", "source.md"), "source\n")
+					return TaskResponse{Stdout: `{"status":"ready"}`, ExitCode: 0}, nil
+				case "child.child_write":
+					writeFile(t, filepath.Join(baseDir, "docs", "child.md"), "child\n")
+					return TaskResponse{Stdout: `{"child_status":"accepted"}`, ExitCode: 0}, nil
+				case "parent.consume":
+					writeFile(t, filepath.Join(baseDir, "docs", "accepted.md"), "accepted\n")
+					return TaskResponse{Stdout: `{"ok":true}`, ExitCode: 0}, nil
+				default:
+					return TaskResponse{}, fmt.Errorf("unexpected task %s.%s", req.WorkflowID, req.TaskID)
+				}
+			}),
+		},
+	}
+
+	child := &workflow.Workflow{
+		ID:              "child",
+		Inputs:          []string{"literal", "source_path", "status"},
+		DefaultExecutor: &workflow.ExecutorConfig{CLI: "codex", Model: "gpt-5.4"},
+		Steps: []workflow.Node{
+			&workflow.Task{
+				ID: "child_write",
+				Prompt: workflow.Prompt{
+					TemplatePath: "agents/child.md",
+					Vars: map[string]workflow.StringExpr{
+						"LITERAL":     workflow.InputRef{Name: "literal"},
+						"SOURCE_PATH": workflow.InputRef{Name: "source_path"},
+						"STATUS":      workflow.InputRef{Name: "status"},
+					},
+				},
+				Artifacts:  map[string]workflow.StringExpr{"child": workflow.Literal{Value: "docs/child.md"}},
+				ResultKeys: []string{"child_status"},
+			},
+		},
+		OutputArtifacts: map[string]workflow.StringExpr{
+			"child":  workflow.PathRef{StepID: "child_write", ArtifactKey: "child"},
+			"source": workflow.InputRef{Name: "source_path"},
+		},
+		OutputResults: map[string]workflow.ValueExpr{
+			"child_status": workflow.JSONRef{StepID: "child_write", Field: "child_status"},
+		},
+	}
+	parent := &workflow.Workflow{
+		ID:              "parent",
+		DefaultExecutor: &workflow.ExecutorConfig{CLI: "codex", Model: "gpt-5.4"},
+		Steps: []workflow.Node{
+			&workflow.Task{
+				ID:         "prepare",
+				Prompt:     workflow.Prompt{Inline: "prepare"},
+				Artifacts:  map[string]workflow.StringExpr{"source": workflow.Literal{Value: "docs/source.md"}},
+				ResultKeys: []string{"status"},
+			},
+			&workflow.Subworkflow{
+				ID:           "child",
+				WorkflowPath: "workflows/child.star",
+				Workflow:     child,
+				Inputs: map[string]workflow.ValueExpr{
+					"literal":     workflow.Literal{Value: "literal-value"},
+					"source_path": workflow.PathRef{StepID: "prepare", ArtifactKey: "source"},
+					"status":      workflow.JSONRef{StepID: "prepare", Field: "status"},
+				},
+			},
+			&workflow.Task{
+				ID: "consume",
+				Prompt: workflow.Prompt{
+					TemplatePath: "agents/consume.md",
+					Vars: map[string]workflow.StringExpr{
+						"CHILD_PATH":  workflow.PathRef{StepID: "child", ArtifactKey: "child"},
+						"SOURCE_PATH": workflow.PathRef{StepID: "child", ArtifactKey: "source"},
+					},
+				},
+				Artifacts: map[string]workflow.StringExpr{
+					"child":  workflow.PathRef{StepID: "child", ArtifactKey: "child"},
+					"source": workflow.PathRef{StepID: "child", ArtifactKey: "source"},
+					"status": workflow.FormatExpr{
+						Template: "docs/{status}.md",
+						Args: map[string]workflow.ValueExpr{
+							"status": workflow.JSONRef{StepID: "child", Field: "child_status"},
+						},
+					},
+				},
+				ResultKeys: []string{"ok"},
+			},
+		},
+	}
+
+	err := engine.Run(context.Background(), RunInput{
+		Workflow: parent,
+		BaseDir:  baseDir,
+		Workdir:  baseDir,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	childPrompt := prompts["child.child_write"]
+	for _, want := range []string{"literal=literal-value", "source=docs/source.md", "status=ready"} {
+		if !strings.Contains(childPrompt, want) {
+			t.Fatalf("child prompt = %q, want %q", childPrompt, want)
+		}
+	}
+	parentPrompt := prompts["parent.consume"]
+	for _, want := range []string{"child=docs/child.md", "source=docs/source.md"} {
+		if !strings.Contains(parentPrompt, want) {
+			t.Fatalf("parent prompt = %q, want %q", parentPrompt, want)
+		}
+	}
+}
+
+func TestEngineDoesNotLeakSubworkflowInternalState(t *testing.T) {
+	baseDir := t.TempDir()
+	engine := Engine{
+		Executors: map[string]Executor{
+			"codex": fakeExecutorFunc(func(_ context.Context, req TaskRequest) (TaskResponse, error) {
+				switch req.WorkflowID + "." + req.TaskID {
+				case "child.child_write":
+					writeFile(t, filepath.Join(baseDir, "docs", "child.md"), "child\n")
+					return TaskResponse{Stdout: `{"ok":true}`, ExitCode: 0}, nil
+				case "parent.consume":
+					return TaskResponse{Stdout: `{"ok":true}`, ExitCode: 0}, nil
+				default:
+					return TaskResponse{}, fmt.Errorf("unexpected task %s.%s", req.WorkflowID, req.TaskID)
+				}
+			}),
+		},
+	}
+
+	child := &workflow.Workflow{
+		ID:              "child",
+		DefaultExecutor: &workflow.ExecutorConfig{CLI: "codex", Model: "gpt-5.4"},
+		Steps: []workflow.Node{
+			&workflow.Task{
+				ID:         "child_write",
+				Prompt:     workflow.Prompt{Inline: "child"},
+				Artifacts:  map[string]workflow.StringExpr{"child": workflow.Literal{Value: "docs/child.md"}},
+				ResultKeys: []string{"ok"},
+			},
+		},
+		OutputArtifacts: map[string]workflow.StringExpr{
+			"child": workflow.PathRef{StepID: "child_write", ArtifactKey: "child"},
+		},
+	}
+	parent := &workflow.Workflow{
+		ID:              "parent",
+		DefaultExecutor: &workflow.ExecutorConfig{CLI: "codex", Model: "gpt-5.4"},
+		Steps: []workflow.Node{
+			&workflow.Subworkflow{
+				ID:           "child",
+				WorkflowPath: "workflows/child.star",
+				Workflow:     child,
+				Inputs:       map[string]workflow.ValueExpr{},
+			},
+			&workflow.Task{
+				ID:         "consume",
+				Prompt:     workflow.Prompt{Inline: "consume"},
+				Artifacts:  map[string]workflow.StringExpr{"leaked": workflow.PathRef{StepID: "child_write", ArtifactKey: "child"}},
+				ResultKeys: []string{"ok"},
+			},
+		},
+	}
+
+	err := engine.Run(context.Background(), RunInput{
+		Workflow: parent,
+		BaseDir:  baseDir,
+		Workdir:  baseDir,
+	})
+	if err == nil || !strings.Contains(err.Error(), `missing artifacts for step "child_write"`) {
+		t.Fatalf("Run() error = %v, want missing child internal artifact", err)
+	}
+}
+
+func TestEngineSubworkflowInLoopUsesLatestOutput(t *testing.T) {
+	baseDir := t.TempDir()
+	childRuns := 0
+	engine := Engine{
+		Executors: map[string]Executor{
+			"codex": fakeExecutorFunc(func(_ context.Context, req TaskRequest) (TaskResponse, error) {
+				switch req.WorkflowID + "." + req.TaskID {
+				case "child.check":
+					childRuns++
+					outcome := "not_ready"
+					if childRuns >= 2 {
+						outcome = "ready"
+					}
+					writeFile(t, filepath.Join(baseDir, "docs", fmt.Sprintf("child-%d.md", childRuns)), outcome+"\n")
+					return TaskResponse{
+						Stdout:   fmt.Sprintf(`{"outcome":"%s"}`, outcome),
+						ExitCode: 0,
+					}, nil
+				case "parent.consume":
+					writeFile(t, filepath.Join(baseDir, "docs", "ready.md"), "ready\n")
+					return TaskResponse{Stdout: `{"ok":true}`, ExitCode: 0}, nil
+				default:
+					return TaskResponse{}, fmt.Errorf("unexpected task %s.%s", req.WorkflowID, req.TaskID)
+				}
+			}),
+		},
+	}
+
+	child := &workflow.Workflow{
+		ID:              "child",
+		Inputs:          []string{"iter"},
+		DefaultExecutor: &workflow.ExecutorConfig{CLI: "codex", Model: "gpt-5.4"},
+		Steps: []workflow.Node{
+			&workflow.Task{
+				ID:     "check",
+				Prompt: workflow.Prompt{Inline: "check"},
+				Artifacts: map[string]workflow.StringExpr{
+					"report": workflow.FormatExpr{
+						Template: "docs/child-{iter}.md",
+						Args: map[string]workflow.ValueExpr{
+							"iter": workflow.InputRef{Name: "iter"},
+						},
+					},
+				},
+				ResultKeys: []string{"outcome"},
+			},
+		},
+		OutputArtifacts: map[string]workflow.StringExpr{
+			"report": workflow.PathRef{StepID: "check", ArtifactKey: "report"},
+		},
+		OutputResults: map[string]workflow.ValueExpr{
+			"outcome": workflow.JSONRef{StepID: "check", Field: "outcome"},
+		},
+	}
+	parent := &workflow.Workflow{
+		ID:              "parent",
+		DefaultExecutor: &workflow.ExecutorConfig{CLI: "codex", Model: "gpt-5.4"},
+		Steps: []workflow.Node{
+			&workflow.RepeatUntil{
+				ID:       "review_loop",
+				MaxIters: 3,
+				Steps: []workflow.Node{
+					&workflow.Subworkflow{
+						ID:           "child",
+						WorkflowPath: "workflows/child.star",
+						Workflow:     child,
+						Inputs: map[string]workflow.ValueExpr{
+							"iter": workflow.LoopIter{LoopID: "review_loop"},
+						},
+					},
+				},
+				Until: workflow.EqPredicate{
+					Left:  workflow.JSONRef{StepID: "child", Field: "outcome"},
+					Right: workflow.Literal{Value: "ready"},
+				},
+			},
+			&workflow.Task{
+				ID:     "consume",
+				Prompt: workflow.Prompt{Inline: "consume"},
+				Artifacts: map[string]workflow.StringExpr{
+					"latest": workflow.PathRef{StepID: "child", ArtifactKey: "report"},
+					"status": workflow.FormatExpr{
+						Template: "docs/{outcome}.md",
+						Args: map[string]workflow.ValueExpr{
+							"outcome": workflow.JSONRef{StepID: "child", Field: "outcome"},
+						},
+					},
+				},
+				ResultKeys: []string{"ok"},
+			},
+		},
+	}
+
+	err := engine.Run(context.Background(), RunInput{
+		Workflow: parent,
+		BaseDir:  baseDir,
+		Workdir:  baseDir,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if childRuns != 2 {
+		t.Fatalf("childRuns = %d, want 2", childRuns)
+	}
+}
+
 func TestEngineFailsWhenArtifactMissing(t *testing.T) {
 	baseDir := t.TempDir()
 	engine := Engine{

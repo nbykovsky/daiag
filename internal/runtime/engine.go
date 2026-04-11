@@ -95,6 +95,10 @@ func (e Engine) runNodes(ctx context.Context, input RunInput, st *state, nodes [
 			if err := e.runRepeatUntil(ctx, input, st, n); err != nil {
 				return err
 			}
+		case *workflow.Subworkflow:
+			if err := e.runSubworkflow(ctx, input, st, n); err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("unsupported node type %T", node)
 		}
@@ -161,6 +165,60 @@ func (e Engine) runTask(ctx context.Context, input RunInput, st *state, task *wo
 	if e.Logger != nil {
 		e.Logger.StepDone(task.ID, logging.SortKeys(artifactKeys), result)
 	}
+
+	return nil
+}
+
+func (e Engine) runSubworkflow(ctx context.Context, input RunInput, st *state, sub *workflow.Subworkflow) error {
+	if sub.Workflow == nil {
+		return stepError{StepID: sub.ID, Err: fmt.Errorf("workflow is not loaded")}
+	}
+
+	childInputs := make(map[string]any, len(sub.Inputs))
+	for key, expr := range sub.Inputs {
+		value, err := resolveValueExpr(expr, st)
+		if err != nil {
+			return stepError{StepID: sub.ID, Err: fmt.Errorf("resolve input %q: %w", key, err)}
+		}
+		childInputs[key] = value
+	}
+
+	childState := &state{
+		artifacts: make(map[string]map[string]string),
+		results:   make(map[string]map[string]any),
+		loops:     make(map[string]int),
+		inputs:    childInputs,
+	}
+	childInput := RunInput{
+		Workflow:     sub.Workflow,
+		WorkflowPath: sub.WorkflowPath,
+		BaseDir:      input.BaseDir,
+		Workdir:      input.Workdir,
+		Inputs:       childInputs,
+	}
+	if err := e.runNodes(ctx, childInput, childState, sub.Workflow.Steps); err != nil {
+		return err
+	}
+
+	outputArtifacts := make(map[string]string, len(sub.Workflow.OutputArtifacts))
+	for key, expr := range sub.Workflow.OutputArtifacts {
+		value, err := resolveStringExpr(expr, childState)
+		if err != nil {
+			return stepError{StepID: sub.ID, Err: fmt.Errorf("resolve output artifact %q: %w", key, err)}
+		}
+		outputArtifacts[key] = value
+	}
+	outputResults := make(map[string]any, len(sub.Workflow.OutputResults))
+	for key, expr := range sub.Workflow.OutputResults {
+		value, err := resolveValueExpr(expr, childState)
+		if err != nil {
+			return stepError{StepID: sub.ID, Err: fmt.Errorf("resolve output result %q: %w", key, err)}
+		}
+		outputResults[key] = value
+	}
+
+	st.artifacts[sub.ID] = outputArtifacts
+	st.results[sub.ID] = outputResults
 
 	return nil
 }
