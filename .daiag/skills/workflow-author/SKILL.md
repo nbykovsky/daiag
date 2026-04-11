@@ -1,6 +1,6 @@
 ---
 name: workflow-author
-description: Design and author a complete daiag workflow from user requirements. Produces the workflow entry .star file at .daiag/workflows/ and any missing task pairs in .daiag/tasks/. Use when the user wants to create a new workflow or wire up steps into a runnable workflow file.
+description: Design and author a complete daiag workflow from user requirements. Produces the workflow .star file with inline task definitions and sibling prompt templates. Use when the user wants to create a new workflow, author tasks, or wire up steps into a runnable workflow file.
 compatibility: daiag project
 ---
 
@@ -14,34 +14,36 @@ Follow the conventions in [`.daiag/agents/workflow-author.md`](.daiag/agents/wor
 
 1. **Load the guide** — Read `.daiag/agents/workflow-author.md` before writing any file.
 2. **Clarify requirements** — Ask the questions listed in the guide's "Required Clarifications" section. Do not skip any that are unanswered. Ask as one grouped message, not one question at a time.
-3. **Read the task index** — Read `.daiag/tasks/TASKS.md` to discover available tasks and their helper signatures, artifacts, and result keys.
-4. **Report missing tasks** — Cross-reference required steps against `TASKS.md`. If any are absent, report them in the structured format from the guide and stop. Let the user author the missing tasks (e.g. using the `workflow-task-author` skill) and come back.
-5. **Write the workflow entry file** — Once all tasks exist, create `.daiag/workflows/<id>.star` wiring all tasks together.
+3. **Read the workflow index** — Read `.daiag/WORKFLOWS.md` to discover available workflows and their input/output contracts.
+4. **Write the workflow file** — Create `<dir>/<workflow_name>.star` with inline task definitions and sibling prompt templates.
+5. **Update the index** — Add or update the entry in `.daiag/WORKFLOWS.md`.
 6. **Validate** — Run through the validation checklist in the guide before reporting done.
 
 ## What You Produce
 
-- `.daiag/workflows/<id>.star` — the runnable workflow entry file
-- A structured missing-tasks report if any required tasks don't exist yet (no files written in that case)
+- `<dir>/<workflow_name>.star` — the runnable workflow entry file with inline tasks
+- `<dir>/<workflow_name>_<task_name>.md` per task (or `<workflow_name>.md` for single-task workflows)
+- Updated `.daiag/WORKFLOWS.md`
 
 ## Key Rules
 
+- **Inline tasks** — define task helpers directly in the `.star` file, do not load from `.daiag/tasks/`
+- **Underscores everywhere** — filenames, workflow IDs, and task names all use underscores
+- **Prompt files are siblings** — prompt `.md` files live in the same directory as the `.star` file
+- **Sharing via subworkflow** — any workflow can be reused as a subworkflow; use `workflow(inputs = [...])` and declare `output_artifacts`/`output_results`
 - **No paths module** — compute paths inline with `format(...)` in the workflow entry file
-- **Load from tasks** — always `load("../tasks/<step>.star", "<step>_task")`
-- **Step ID** — pass the full step ID to each task helper (e.g. `"write_draft_main"`); the same string is used in `path_ref(...)` and `json_ref(...)` with no reconstruction
+- **Step ID** — pass the full step ID to each task helper (e.g. `"write_draft_main"`); the same string is used in `path_ref(...)` and `json_ref(...)`
 - **Loops** — use `repeat_until(...)` when a step must retry until a quality or approval condition; the `until` predicate references a `json_ref` to the last task in the loop body
-- **References** — use `path_ref(...)` for file handoff, `json_ref(...)` only for loop exit conditions or small metadata
 
 ## Questions to Ask
 
 Before writing files, ask the user:
 
-1. What is the workflow ID? (becomes the filename and `workflow(id = ...)` — not the runtime `name` param)
+1. What is the workflow ID? (becomes the filename and `workflow(id = ...)` — use underscores)
 2. What are the steps in order — what does each one do, read, and write?
 3. Are any steps iterative? If yes: which tasks form the loop body, what result key and value exit the loop, and how many max iterations?
 4. What is the output path pattern for artifacts?
-
-`name` and `workdir` are always mandatory — do not ask about them. All artifact paths must be rooted under `workdir`.
+5. Is this workflow intended to be reused as a subworkflow?
 
 ## Don't Guess
 
