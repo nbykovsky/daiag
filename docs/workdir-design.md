@@ -216,8 +216,8 @@ the correct absolute path.
 ## Implementation Tasks
 
 1. **Separate module loading base from workdir** — fix `internal/cli/default_runner.go`
-   and `internal/starlarkdsl/modules.go` to use the workflow file's directory
-   as the module resolution base and the entry workflow directory (or
+   and `internal/starlarkdsl/modules.go` to use the calling module's directory
+   as the module resolution directory and the entry workflow directory (or
    `--workflows-lib` root) as the allowed boundary; never use `--workdir` for
    either.
 
@@ -235,7 +235,8 @@ the correct absolute path.
 
 4. **Require `--workdir` and create it** — remove the `os.Getwd()` fallback
    in `internal/cli/default_runner.go:65`; fail fast if the flag is absent;
-   `mkdir -p` the workdir before execution begins.
+   reject relative paths with an explicit error rather than converting with
+   `filepath.Abs`; `mkdir -p` the workdir before execution begins.
 
 5. **Resolve artifact paths to absolute at execution time** — apply resolution
    in `internal/runtime/engine.go` for both `artifact(path)` in tasks and
