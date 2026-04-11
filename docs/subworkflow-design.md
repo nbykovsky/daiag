@@ -465,6 +465,11 @@ func (s *Subworkflow) NodeID() string {
 The child workflow's `OutputArtifacts` and `OutputResults` fields are the
 single source of truth for the subworkflow's public outputs.
 
+`ModuleDir` is populated by the `subworkflow(...)` builtin from the current
+caller module path, using the same call-stack approach as `template_file(...)`.
+This makes the `workflow` path stable when `subworkflow(...)` appears in a
+loaded helper module.
+
 Add workflow input references:
 
 ```go
@@ -507,9 +512,14 @@ Add predeclared builtins:
 - `subworkflow`
 
 `input(name)` returns an `inputValue` that wraps `workflow.InputRef`.
+It should not validate that `name` appears in `workflow(inputs = [...])` during
+Starlark evaluation because the `workflow(...)` call may not have happened yet.
+That check belongs in the workflow validator after the full workflow tree has
+been loaded.
 
 `subworkflow(...)` returns a `subworkflowValue` that wraps
 `workflow.Subworkflow`.
+It should populate `Subworkflow.ModuleDir` from `currentCallerModulePath(thread)`.
 
 ### `workflow(...)`
 
@@ -542,15 +552,24 @@ from Starlark file loading.
 Child workflow loading should use a workflow-file stack:
 
 ```go
-type workflowLoadStack struct {
+type workflowLoadContext struct {
     loading []string
 }
 ```
 
-The stack contains canonical absolute workflow file paths currently being
-loaded through `Loader.Load` and nested `subworkflow(...)` references.
-If a child path already exists in the stack, loading fails with a subworkflow
-cycle error.
+The stack lives in a per-call load context, not on `Loader`, so concurrent
+loads using the same `Loader` value do not share mutable state. Public
+`Loader.Load(path)` should create a fresh `workflowLoadContext` and delegate to
+an internal recursive method such as:
+
+```go
+func (l Loader) loadWorkflow(path string, ctx *workflowLoadContext, allowParam bool) (*workflow.Workflow, error)
+```
+
+`ctx.loading` contains canonical absolute workflow file paths currently being
+loaded through `Loader.Load` and nested `subworkflow(...)` references. The same
+`ctx` is passed into recursive child workflow loads. If a child path already
+exists in `ctx.loading`, loading fails with a subworkflow cycle error.
 
 Do not reuse one mutable `*workflow.Workflow` pointer for multiple
 `subworkflow(...)` nodes. If the same child workflow file is referenced twice,
@@ -607,13 +626,23 @@ type Validator struct {
 that construct workflows without `input(...)` values can keep using
 `Validator{BaseDir: ...}`.
 
+The validator uses `map[string]string` because top-level CLI input bindings are
+strings and validation only needs key presence. Runtime uses `map[string]any`
+because subworkflow input expressions may resolve from `json_ref(...)` and other
+runtime values that are not necessarily strings.
+
 Internally, validation should use an explicit scope object rather than one
 global ID map:
 
 ```go
+type nodeInfo struct {
+    artifacts  map[string]struct{}
+    resultKeys map[string]struct{}
+}
+
 type validationScope struct {
-    seenTasks       map[string]taskInfo
     seenNodes       map[string]nodeInfo
+    allIDs          map[string]struct{}
     activeLoops     map[string]struct{}
     declaredInputs  map[string]struct{}
     availableInputs map[string]struct{}
@@ -621,13 +650,39 @@ type validationScope struct {
 }
 ```
 
-Each workflow gets its own `seenNodes` map. Loops reuse the current workflow
-scope because step IDs remain unique within a workflow, including nested loop
-bodies. Subworkflows create a new child workflow scope, so parent and child task
-IDs may overlap.
+`seenNodes` is the unified lookup table for nodes that expose references:
+
+- tasks register their artifact keys and result keys
+- subworkflows register their child workflow output artifact keys and output
+  result keys
+- loops do not register in `seenNodes` because loops have no public artifact or
+  result outputs in this design
+
+`path_ref(...)` and `json_ref(...)` validation should both read from
+`seenNodes`. There should not be one lookup path for tasks and a separate lookup
+path for subworkflows.
+
+`allIDs` is the workflow-scope uniqueness set for task IDs, loop IDs, and
+subworkflow IDs. Each workflow gets its own `allIDs` and `seenNodes` maps. Loops
+reuse the current workflow scope because step IDs remain unique within a
+workflow, including nested loop bodies. Subworkflows create a new child workflow
+scope, so parent and child task IDs may overlap.
 
 Do not pass the parent workflow's global ID set into child workflow validation.
 The current single-map approach is valid only before subworkflows exist.
+
+Input set semantics:
+
+- `declaredInputs` is the current workflow's `inputs = [...]` declaration.
+- `availableInputs` is the set of values known to be provided for this workflow
+  invocation.
+- For a top-level workflow, `availableInputs` comes from `Validator.Inputs`.
+- For a child workflow, `availableInputs` is initialized from the child's
+  `declaredInputs`; the parent binding map is validated separately before the
+  child can run.
+- Validation fails if `declaredInputs` is not a subset of `availableInputs`.
+- `input("x")` validation checks `declaredInputs`, so a workflow cannot use an
+  undeclared input even if a value named `x` happens to be available.
 
 `templateBaseDir` is the fallback base directory for prompt templates whose
 `Prompt.TemplateDir` is empty. For a child workflow, use the child workflow
@@ -841,6 +896,12 @@ The exact helper names can differ, but the parent should rewrite child
 `stepError{StepID: "review_spec"}` into
 `stepError{StepID: "spec.review_spec"}` before logging or returning it. That
 keeps logger behavior compatible with the current flat step ID field.
+
+For nested subworkflows, every runtime level applies the same qualification when
+its direct child returns an error. For example, if child subworkflow `refine`
+inside parent subworkflow `spec` fails at `inner_task`, the `refine` runtime
+returns `refine.inner_task` to `spec`, and the `spec` runtime returns
+`spec.refine.inner_task` to its parent.
 
 ### Logging
 
