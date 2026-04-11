@@ -625,3 +625,4 @@ wf = workflow(
 - `docs/workflow-runner.md`
 - `docs/starlark-load-design.md`
 - `docs/loop-iteration-design.md`
+- `docs/subworkflow-design.md`
