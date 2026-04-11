@@ -1073,3 +1073,7 @@ arguments. Adding `inputs = ...` to `task(...)` creates another contract beside
 
 Subworkflow inputs are different: they define a component boundary and are
 needed for validation and composition.
+
+## Related Documents
+
+- `docs/subworkflow-implementation-tasks.md`
