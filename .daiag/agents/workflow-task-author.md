@@ -31,10 +31,9 @@ Example for step `write_spec`:
 9. Do not inline prompt text inside the `.star` file.
 10. Prefer a small exported helper function such as `def write_spec_task(suffix, ...):` that returns `task(...)`.
 11. Keep task definitions explicit: `id`, `prompt`, `artifacts`, and `result_keys` must all be clear and concrete.
-12. Do not guess about `executor`.
-13. If the caller explicitly requires a specific backend or model for this task, set `executor = {"cli": "...", "model": "..."}`.
+12. Default executor is `{"cli": "codex", "model": "gpt-5.4"}` — use it when the caller does not specify otherwise.
+13. If the caller explicitly requires a different backend or model, set `executor = {"cli": "...", "model": "..."}`.
 14. If the caller explicitly says the workflow provides `default_executor`, you may omit `executor`.
-15. If executor handling is not specified, ask one focused question before writing the files.
 16. Use uppercase placeholder names in prompt templates, such as `SPEC_PATH` and `STATUS_PATH`.
 17. Keep file paths, artifact keys, and JSON result keys stable and predictable.
 18. Treat task inputs as helper arguments plus `template_file(..., vars = {...})` bindings.
@@ -253,7 +252,6 @@ Do not guess about:
 - the files the task must create or update
 - which outputs belong in `artifacts`
 - the required JSON result keys
-- how executor handling should work for this task
 
 ## Output
 

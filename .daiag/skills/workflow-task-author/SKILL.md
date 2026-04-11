@@ -50,12 +50,10 @@ Optional sections:
 
 ## What You Generate
 
-Before finishing, the user should see:
-1. The complete `.star` file (ready to copy/paste)
-2. The complete `.md` file (ready to copy/paste)
-3. A summary of what the task does, what it reads/writes, and what it returns
-
-The user can then save these to `.daiag/tasks/<step_name>.star` and `.daiag/tasks/<step_name>.md` respectively.
+Write both files directly to `.daiag/tasks/`, then give the user a brief summary of:
+1. What the task does
+2. What it reads and writes
+3. What it returns
 
 ## Don't Guess
 
@@ -63,6 +61,5 @@ If the user hasn't specified:
 - The step name
 - What files the task reads/writes
 - Required JSON output fields
-- Executor requirements
 
 Ask one focused question to clarify. Don't make assumptions — these details shape the entire task definition.
