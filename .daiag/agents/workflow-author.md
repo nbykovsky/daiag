@@ -74,7 +74,7 @@ wf = workflow(
 ## Step ID Convention
 
 - Pass the full step ID to every task helper: `write_draft_task("write_draft_main", ...)`.
-- Use the pattern `"<step_name>_<qualifier>"` where qualifier is a short lowercase string: `"main"`, `"draft"`, `"v1"`.
+- Use the pattern `"<task_name>_<qualifier>"` where qualifier is a short lowercase string: `"main"`, `"draft"`, `"v1"`.
 - The same string passed to the helper is used verbatim in `path_ref(...)` and `json_ref(...)` — no mental reconstruction needed.
 - Tasks in a loop body each get their own full step ID (e.g. `"extend_main"`, `"review_main"`).
 - For two independent instances of the same task, use distinct qualifiers: `"write_draft_v1"`, `"write_draft_v2"`.
@@ -162,7 +162,7 @@ Do not write the workflow entry file until the user confirms all missing tasks h
 Before finishing, verify all of the following:
 
 - every task used in the workflow has an entry in `.daiag/tasks/TASKS.md`
-- every `load(...)` path matches the step name from `TASKS.md`
+- every `load(...)` path matches the task name from `TASKS.md`
 - `name` and `workdir` are declared as `param(...)` — these are always mandatory
 - all derived paths are rooted under `workdir`
 - every task helper is called with all required arguments

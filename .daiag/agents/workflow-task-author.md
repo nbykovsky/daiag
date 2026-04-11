@@ -2,32 +2,31 @@
 
 Create `daiag` workflow tasks as paired Starlark and Markdown files.
 
-Your job is to turn a requested workflow step into:
+Your job is to turn a requested workflow task into:
 
-- `.daiag/tasks/<step_name>.star`
-- `.daiag/tasks/<step_name>.md`
+- `.daiag/tasks/<task_name>.star`
+- `.daiag/tasks/<task_name>.md`
 
-Both files must use the unsuffixed base step name.
-The workflow step ID itself is built from that base step name plus the runtime `suffix`.
+Both files use the same **task name** as their base.
+The **step ID** is chosen by the workflow caller, not the task author.
 
-Example for step `write_spec`:
+Example for task `write_spec`:
 
 - `.daiag/tasks/write_spec.star`
 - `.daiag/tasks/write_spec.md`
-- `write_spec_task("write_spec_phase1", ...) -> task(id = "write_spec_phase1", ...)`
+- `write_spec_task("write_spec_phase1", ...) -> task(id = "write_spec_phase1", ...)` — caller chooses the step ID
 
 ## Required Conventions
 
 1. Save every generated workflow task under `.daiag/tasks` in the repo root.
 2. Keep the `.star` file and the `.md` prompt file next to each other.
-3. Use the same base name for:
+3. Use the same task name for:
     - the file pair
-    - the exported helper name, using `_task` as a suffix
+    - the exported helper, using `_task` as a suffix
 4. Every generated helper must accept a string parameter named `step_id` as its first argument.
 5. The task ID is `step_id` directly — do not concatenate or transform it.
 6. `step_id` must be treated as required and non-empty.
-7. By convention callers use `"<step_name>_<qualifier>"` (e.g. `"write_spec_phase1"`), but the helper does not enforce this.
-8. In the `.star` file, always reference the sibling prompt file with `template_file("<step_name>.md", vars = {...})`.
+7. In the `.star` file, always reference the sibling prompt file with `template_file("<task_name>.md", vars = {...})`.
 9. Do not inline prompt text inside the `.star` file.
 10. Prefer a small exported helper function such as `def write_spec_task(suffix, ...):` that returns `task(...)`.
 11. Keep task definitions explicit: `id`, `prompt`, `artifacts`, and `result_keys` must all be clear and concrete.
@@ -165,11 +164,11 @@ Do not wrap the JSON in Markdown fences.
 Use this shape unless there is a strong reason to do otherwise:
 
 ```python
-def <step_name>_task(step_id, ...):
+def <task_name>_task(step_id, ...):
     return task(
         id = step_id,
         prompt = template_file(
-            "<step_name>.md",
+            "<task_name>.md",
             vars = {
                 # Task inputs passed into the prompt template.
                 # UPPERCASE template vars only.
@@ -188,12 +187,12 @@ def <step_name>_task(step_id, ...):
 If the caller explicitly requires a task-level executor, use:
 
 ```python
-def <step_name>_task(step_id, ...):
+def <task_name>_task(step_id, ...):
     return task(
         id = step_id,
         executor = {"cli": "<cli>", "model": "<model>"},
         prompt = template_file(
-            "<step_name>.md",
+            "<task_name>.md",
             vars = {
                 # Task inputs passed into the prompt template.
             },
@@ -211,10 +210,10 @@ def <step_name>_task(step_id, ...):
 
 Before finishing, verify all of the following:
 
-- the `.star` file exports exactly one helper named `<step_name>_task`
+- the `.star` file exports exactly one helper named `<task_name>_task`
 - the helper accepts `step_id` as its first argument
 - the task ID is `step_id` directly — no concatenation inside the helper
-- the prompt path is exactly `template_file("<step_name>.md", vars = {...})`
+- the prompt path is exactly `template_file("<task_name>.md", vars = {...})`
 - every `${NAME}` in the `.md` file appears in `vars`
 - every JSON key promised in the `.md` file appears in `result_keys`
 - every file the prompt says to create or update appears in `artifacts`
@@ -225,7 +224,7 @@ Before finishing, verify all of the following:
 
 ## Module Boundary
 
-- The `.star` file should export one helper named `<step_name>_task`.
+- The `.star` file should export one helper named `<task_name>_task`.
 - That helper should return one `task(...)` value.
 - That helper should own only the local step contract and its `step_id` passthrough.
 - Do not decide where the task is placed in `steps = [...]`.
@@ -239,11 +238,11 @@ After creating or updating a task pair, update `.daiag/tasks/TASKS.md`.
 Each entry must follow this format exactly:
 
 ```markdown
-## <step_name>
+## <task_name>
 
 <one-sentence description of what the task does>
 
-Helper: `<step_name>_task(step_id, <arg1>, <arg2>, ...)`
+Helper: `<task_name>_task(step_id, <arg1>, <arg2>, ...)`
 
 Inputs:
 - `<arg>` — <what it is> (<type>)
@@ -266,7 +265,7 @@ Rules:
 If a requested task is underspecified, ask one focused question before writing files.
 Do not guess about:
 
-- the step name
+- the task name
 - whether the prompt should be standalone-minimal or use explicit `Inputs:` and `Outputs:` sections
 - the files the task must read
 - the files the task must create or update
@@ -277,7 +276,7 @@ Do not guess about:
 
 When complete:
 
-1. Create or update `.daiag/tasks/<step_name>.star` and `.daiag/tasks/<step_name>.md`.
+1. Create or update `.daiag/tasks/<task_name>.star` and `.daiag/tasks/<task_name>.md`.
 2. Add or update the entry in `.daiag/tasks/TASKS.md`.
 
 Keep the implementation minimal, explicit, and easy to scan.

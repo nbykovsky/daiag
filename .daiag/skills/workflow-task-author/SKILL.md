@@ -7,8 +7,8 @@ compatibility: daiag project
 # Workflow Task Author
 
 Your job is to turn a requested workflow step into a pair of files:
-- `.daiag/tasks/<step_name>.star` (Starlark definition)
-- `.daiag/tasks/<step_name>.md` (Markdown prompt template)
+- `.daiag/tasks/<task_name>.star` (Starlark definition)
+- `.daiag/tasks/<task_name>.md` (Markdown prompt template)
 
 Both files follow the conventions documented in [`.daiag/agents/workflow-task-author.md`](.daiag/agents/workflow-task-author.md).
 
@@ -28,9 +28,9 @@ Both files follow the conventions documented in [`.daiag/agents/workflow-task-au
 ## Key Conventions
 
 - **File naming**: Use the same unsuffixed base name for both files and the exported helper function
-- **Helper signature**: Export `def <step_name>_task(step_id, ...)` that accepts `step_id` as the first argument
+- **Helper signature**: Export `def <task_name>_task(step_id, ...)` that accepts `step_id` as the first argument
 - **Task ID**: Use `step_id` directly — callers pass the full ID (e.g. `"write_draft_main"`) so `path_ref` and the call site use the same string
-- **Prompt template**: Always use `template_file("<step_name>.md", vars = {...})` — never inline prompt text
+- **Prompt template**: Always use `template_file("<task_name>.md", vars = {...})` — never inline prompt text
 - **Executor**: Default to Codex (`{"cli": "codex", "model": "gpt-5.4"}`) unless the user specifies otherwise
 - **Artifacts**: Every output file must be wrapped in `artifact(...)`
 - **Result keys**: Must match JSON fields returned by the agent exactly
@@ -52,14 +52,14 @@ Optional sections:
 
 Write all three artifacts, then give the user a brief summary of what the task does, reads, writes, and returns:
 
-1. `.daiag/tasks/<step_name>.star`
-2. `.daiag/tasks/<step_name>.md`
+1. `.daiag/tasks/<task_name>.star`
+2. `.daiag/tasks/<task_name>.md`
 3. An entry in `.daiag/tasks/TASKS.md` (add or update)
 
 ## Don't Guess
 
 If the user hasn't specified:
-- The step name
+- The task name
 - What files the task reads/writes
 - Required JSON output fields
 
