@@ -29,15 +29,13 @@ Do not guess about any of these. Ask one focused question if the answer is uncle
 ## File and Naming Conventions
 
 - All workflow files use underscores in filenames and IDs: `spec_refinement.star`, not `spec-refinement.star`
-- The workflow `id` is chosen independently — it must be self-descriptive, unique across all workflows in `.daiag/WORKFLOWS.md`, and not simply echoing back the user's phrasing. Read WORKFLOWS.md before choosing an id and confirm there is no collision.
+- The workflow `id` is chosen independently — it must be self-descriptive, unique across all workflows in `.daiag/workflows/WORKFLOWS.md`, and not simply echoing back the user's phrasing. Read `WORKFLOWS.md` before choosing an id and confirm there is no collision.
 - The filename is derived from the id: `workflow(id = "spec_refinement")` → `spec_refinement.star`
-- File location:
-  - Reusable workflows (those with `output_artifacts` or `output_results`) go in `.daiag/workflows/`
-  - Example-specific top-level entry workflows go in `<example>/workflows/`
-- Prompt templates live in the same directory as the `.star` file
+- Every workflow lives in its own subdirectory: `.daiag/workflows/<workflow_id>/`
+- The `.star` file and all prompt `.md` files live together in that subdirectory
 - Prompt file naming:
-  - Multi-task workflow: `<workflow_name>_<task_name>.md` per task
-  - Single-task workflow: `<workflow_name>.md`
+  - Multi-task workflow: `<workflow_id>_<task_name>.md` per task
+  - Single-task workflow: `<workflow_id>.md`
 - Do not use a separate `agents/`, `tasks/`, or `lib/` directory for prompt files
 
 ## Workflow Entry File Conventions
@@ -252,7 +250,9 @@ json_ref("spec_refinement", "outcome")
 
 ## Workflow Index
 
-After creating or updating any workflow, update `.daiag/WORKFLOWS.md`.
+After creating or updating any workflow, update `.daiag/workflows/WORKFLOWS.md`.
+
+The index lives at `.daiag/workflows/WORKFLOWS.md` alongside the workflow subdirectories.
 
 Each entry must follow this format exactly:
 
@@ -292,8 +292,8 @@ Rules:
 Before finishing, verify all of the following:
 
 - all filenames and workflow IDs use underscores, not dashes
-- workflow ID is self-descriptive, unique in `.daiag/WORKFLOWS.md`, and matches the filename without `.star`
-- reusable workflows (with `output_artifacts`/`output_results`) are placed in `.daiag/workflows/`
+- workflow ID is self-descriptive, unique in `.daiag/workflows/WORKFLOWS.md`, and matches the filename without `.star`
+- workflow is placed in `.daiag/workflows/<workflow_id>/`
 - single-task workflow uses the task name as the step ID (no qualifier suffix)
 - every task helper is defined inline in the `.star` file
 - every task helper accepts `step_id` as its first argument
@@ -312,15 +312,15 @@ Before finishing, verify all of the following:
 - `repeat_until` has all four required fields: `id`, `max_iters`, `steps`, `until`
 - `max_iters` is at least `1`
 - the top-level `wf` variable is assigned and created by `workflow(...)`
-- `.daiag/WORKFLOWS.md` has been updated
+- `.daiag/workflows/WORKFLOWS.md` has been updated
 
 ## Output
 
 When complete:
 
-- write `<dir>/<workflow_name>.star`
+- write `.daiag/workflows/<workflow_id>/<workflow_id>.star`
 - write one prompt `.md` per task
-- update `.daiag/WORKFLOWS.md`
+- update `.daiag/workflows/WORKFLOWS.md`
 - give the user a brief summary:
   1. workflow name and parameters
   2. steps in order with their prompt files

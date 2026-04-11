@@ -14,16 +14,16 @@ Follow the conventions in [`.daiag/agents/workflow-author.md`](.daiag/agents/wor
 
 1. **Load the guide** — Read `.daiag/agents/workflow-author.md` before writing any file.
 2. **Clarify requirements** — Ask the questions listed in the guide's "Required Clarifications" section. Do not skip any that are unanswered. Ask as one grouped message, not one question at a time.
-3. **Read the workflow index** — Read `.daiag/WORKFLOWS.md` to discover available workflows and their input/output contracts.
+3. **Read the workflow index** — Read `.daiag/workflows/WORKFLOWS.md` to discover available workflows and their input/output contracts.
 4. **Write the workflow file** — Create `<dir>/<workflow_name>.star` with inline task definitions and sibling prompt templates.
-5. **Update the index** — Add or update the entry in `.daiag/WORKFLOWS.md`.
+5. **Update the index** — Add or update the entry in `.daiag/workflows/WORKFLOWS.md`.
 6. **Validate** — Run through the validation checklist in the guide before reporting done.
 
 ## What You Produce
 
-- `<dir>/<workflow_name>.star` — the runnable workflow entry file with inline tasks
-- `<dir>/<workflow_name>_<task_name>.md` per task (or `<workflow_name>.md` for single-task workflows)
-- Updated `.daiag/WORKFLOWS.md`
+- `.daiag/workflows/<workflow_id>/<workflow_id>.star` — the runnable workflow entry file with inline tasks
+- `.daiag/workflows/<workflow_id>/<workflow_id>_<task_name>.md` per task (or `<workflow_id>.md` for single-task workflows)
+- Updated `.daiag/workflows/WORKFLOWS.md`
 
 ## Key Rules
 
