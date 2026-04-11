@@ -34,7 +34,8 @@ references.
 
 ## Goals
 
-- Add `--workflows-lib` CLI flag with a default of `.daiag/workflows/`.
+- Add `--workflows-lib` CLI flag with a default of `.daiag/workflows/` when
+  name resolution is used.
 - Allow `--workflow` to accept either a workflow ID (name) or a file path.
 - Allow `subworkflow(workflow = ...)` to accept either a workflow ID or a path.
 - Resolve workflow IDs to `<workflows-lib>/<id>/<id>.star` at load time.
@@ -50,11 +51,18 @@ references.
 ### CLI Flags
 
 ```sh
-daiag run --workflow <name-or-path> [--workflows-lib <dir>] [--workdir <dir>]
+daiag run --workflow <name-or-path> --workdir <absolute-path> [--workflows-lib <dir>]
 ```
 
-`--workflows-lib` defaults to `.daiag/workflows/` relative to the project root
-(the directory containing `.daiag/`).
+`--workdir` remains required and must be an absolute path.
+
+When `--workflows-lib` is omitted and name resolution is needed, the default
+library is `.daiag/workflows/` under the project root. The project root is found
+by walking up from the process current working directory until a directory
+containing `.daiag/` is found.
+
+If no `.daiag/` ancestor is found, named workflow resolution fails unless
+`--workflows-lib` is supplied.
 
 Examples:
 
@@ -71,9 +79,17 @@ daiag run --workflow ./experiments/draft.star --workdir /output
 
 ### Workflow Name Resolution
 
-A `--workflow` value (or `subworkflow(workflow = ...)` value) is treated as a
-**name** if it contains no `/` and does not end in `.star`. Otherwise it is
-treated as a **path**.
+A `--workflow` value or `subworkflow(workflow = ...)` value is treated as a
+**name** only if it matches:
+
+```text
+[A-Za-z0-9_-]+
+```
+
+Otherwise it is treated as a **path**.
+
+Names must not be empty, `.` or `..`, contain path separators, or end in
+`.star`.
 
 | Value | Treatment | Resolved to |
 |---|---|---|
@@ -102,38 +118,70 @@ subworkflow(
 )
 ```
 
-When a name is used, the library path is injected by the runtime at load time.
+When a name is used, the loader resolves it against the workflows library.
 The workflow author does not need to know or encode the library location.
+
+### Module Boundaries
+
+Module boundaries depend on how the workflow was resolved:
+
+| Workflow reference | Allowed module boundary |
+|---|---|
+| entry workflow by name | workflows library root |
+| entry workflow by path | entry workflow directory |
+| subworkflow by name | workflows library root |
+| subworkflow by path | caller workflow's current boundary |
+
+Relative `load(...)` and path-style `subworkflow(...)` references are resolved
+from the calling `.star` module and must remain inside that workflow's allowed
+boundary.
 
 ### Default Library Location
 
-The default library is resolved relative to the project root — the directory
-containing `.daiag/`:
+The default library is resolved relative to the project root:
 
 ```
 <projectdir>/.daiag/workflows/
 ```
 
-If `--workflows-lib` is supplied it overrides this default. The flag accepts
-both absolute and relative paths; relative paths are resolved from the current
-working directory.
+`<projectdir>` is found by walking up from the process current working directory
+until a directory containing `.daiag/` is found.
+
+If `--workflows-lib` is supplied, it overrides this default. The flag accepts
+both absolute and relative paths; relative paths are resolved from the process
+current working directory.
 
 ## Validation Rules
 
-- If `--workflow` is a name and `--workflows-lib` does not contain a matching
-  subdirectory, fail with a clear error listing the expected path.
-- If `--workflows-lib` does not exist, fail at startup with a clear error.
-- Path-style values bypass the library and follow existing load path rules.
+- If `--workflow` is a name and the workflows library does not contain the
+  expected `<name>/<name>.star` file, fail with a clear error listing the
+  expected path.
+- If `subworkflow(workflow = ...)` is a name and the workflows library does
+  not contain the expected `<name>/<name>.star` file, fail with a clear error
+  listing the expected path.
+- If `--workflows-lib` is explicitly supplied and does not exist, fail at
+  startup with a clear error.
+- If `--workflows-lib` is omitted and name resolution is needed, but no
+  `.daiag/` ancestor can be found from the process current working directory,
+  fail with a clear error.
+- Path-style values bypass workflow name resolution and follow existing load
+  path rules.
 
 ## Implementation Tasks
 
-1. Add `--workflows-lib` flag to the CLI in `internal/cli`; default to
-   `<projectdir>/.daiag/workflows/`.
-2. Add name resolution logic: if the value has no `/` and no `.star` suffix,
-   expand to `<workflows-lib>/<name>/<name>.star`.
+1. Add `--workflows-lib` flag to the CLI in `internal/cli`; when omitted and
+   name resolution is needed, default to `<projectdir>/.daiag/workflows/` where
+   `<projectdir>` is found by walking up from the process current working
+   directory.
+2. Add name resolution logic: if the value matches `[A-Za-z0-9_-]+`, expand to
+   `<workflows-lib>/<name>/<name>.star`.
 3. Apply the same resolution when evaluating `subworkflow(workflow = ...)` in
    `internal/starlarkdsl`.
-4. Add validation: missing library directory and unresolvable names are load
+4. Track an allowed module boundary per loaded workflow: workflows library root
+   for name references, entry workflow directory or caller boundary for path
+   references.
+5. Add validation: explicitly supplied missing library directory, missing
+   default project root during name resolution, and unresolvable names are load
    time errors.
-5. Update `docs/workflow-language.md` to document name resolution and the
+6. Update `docs/workflow-language.md` to document name resolution and the
    `--workflows-lib` flag.
