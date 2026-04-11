@@ -45,6 +45,8 @@ references.
 
 - Multiple library paths or search order across several directories.
 - Automatic discovery or listing of workflows (separate concern).
+- Remapping `projectdir()` for shared workflow libraries outside the calling
+  project tree.
 
 ## Design
 
@@ -136,6 +138,16 @@ Relative `load(...)` and path-style `subworkflow(...)` references are resolved
 from the calling `.star` module and must remain inside that workflow's allowed
 boundary.
 
+This replaces the current single "workflow base directory" concept for module
+validation. Existing docs and code currently use one workflow base directory
+equal to the entry workflow file's directory. After this change, validation
+should talk about the allowed module boundary instead:
+
+- path-style entry workflows keep the entry workflow directory as the boundary
+- named entry workflows use the workflows library root as the boundary
+- path-style subworkflows inherit the caller workflow's boundary
+- named subworkflows use the workflows library root as the boundary
+
 ### Default Library Location
 
 The default library is resolved relative to the project root:
@@ -151,8 +163,32 @@ If `--workflows-lib` is supplied, it overrides this default. The flag accepts
 both absolute and relative paths; relative paths are resolved from the process
 current working directory.
 
+### `projectdir()` in External Libraries
+
+`projectdir()` continues to resolve from the `.star` module where it is called.
+It does not resolve relative to the process current working directory or the
+project that invoked the workflow.
+
+If `--workflows-lib` points outside the project tree, for example
+`/shared/workflows`, named workflows in that library may not have a `.daiag/`
+ancestor. In that case, `projectdir()` fails at load time using the existing
+`projectdir()` error path. Shared workflows that need a caller project path
+should accept it as an explicit workflow input.
+
 ## Validation Rules
 
+These rules replace the current path-only workflow reference validation in
+`docs/workflow-language.md`.
+
+- `--workflow` must be either a valid workflow name or a path-style workflow
+  reference.
+- `subworkflow(workflow = ...)` must be either a valid workflow name or a
+  path-style workflow reference.
+- Name references resolve to `<workflows-lib>/<name>/<name>.star`; the resolved
+  file must exist.
+- Path-style references must be local filesystem paths, must end in `.star`,
+  must not contain `://`, and must remain under the current allowed module
+  boundary.
 - If `--workflow` is a name and the workflows library does not contain the
   expected `<name>/<name>.star` file, fail with a clear error listing the
   expected path.
@@ -180,8 +216,35 @@ current working directory.
 4. Track an allowed module boundary per loaded workflow: workflows library root
    for name references, entry workflow directory or caller boundary for path
    references.
+   In implementation terms, this likely means extending `Loader` and
+   `loadSession` to carry a boundary directory distinct from the calling module
+   directory, and changing subworkflow loading so each child workflow is loaded
+   with the boundary implied by its resolved reference type.
 5. Add validation: explicitly supplied missing library directory, missing
    default project root during name resolution, and unresolvable names are load
    time errors.
 6. Update `docs/workflow-language.md` to document name resolution and the
-   `--workflows-lib` flag.
+   `--workflows-lib` flag, including:
+   - Current CLI Surface
+   - Module Loading rules
+   - `subworkflow(...)` rules
+   - Subworkflow Errors
+   - any remaining "workflow base directory" wording
+
+## Test Expectations
+
+Add focused tests for:
+
+- CLI parsing of `--workflows-lib`
+- workflow name vs path classification
+- default workflows library discovery from process current working directory
+- explicit `--workflows-lib` relative and absolute paths
+- named entry workflow resolution to `<workflows-lib>/<name>/<name>.star`
+- named subworkflow resolution to `<workflows-lib>/<name>/<name>.star`
+- path-style entry and subworkflow references still working
+- missing default project root when name resolution is needed
+- missing explicitly supplied workflows library
+- missing named workflow file with an error listing the expected path
+- boundary enforcement for named workflows and path-style subworkflows
+- `projectdir()` failure in an external workflows library with no `.daiag/`
+  ancestor
