@@ -311,6 +311,166 @@ wf = workflow(
 	}
 }
 
+func TestLoaderLoadsWorkflowOutputContracts(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "poem",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        task(
+            id = "write_poem",
+            prompt = "hello",
+            artifacts = {"poem": artifact("docs/poem.md")},
+            result_keys = ["ok"],
+        ),
+    ],
+    output_artifacts = {"poem": path_ref("write_poem", "poem")},
+    output_results = {"ok": json_ref("write_poem", "ok")},
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	wf, err := loader.Load(workflowPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(wf.OutputArtifacts) != 1 {
+		t.Fatalf("OutputArtifacts len = %d, want 1", len(wf.OutputArtifacts))
+	}
+	if len(wf.OutputResults) != 1 {
+		t.Fatalf("OutputResults len = %d, want 1", len(wf.OutputResults))
+	}
+}
+
+func TestLoaderLoadsWorkflowOutputArtifactFromInput(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, workflowPath, `
+spec_path = input("spec_path")
+
+wf = workflow(
+    id = "spec",
+    inputs = ["spec_path"],
+    steps = [],
+    output_artifacts = {"spec": spec_path},
+)
+`)
+
+	loader := Loader{Inputs: map[string]string{"spec_path": "docs/spec.md"}, BaseDir: baseDir}
+	wf, err := loader.Load(workflowPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if _, ok := wf.OutputArtifacts["spec"].(workflow.InputRef); !ok {
+		t.Fatalf("OutputArtifacts[spec] = %T, want workflow.InputRef", wf.OutputArtifacts["spec"])
+	}
+}
+
+func TestLoaderRejectsOutputReferenceToUnknownStep(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "bad",
+    steps = [],
+    output_artifacts = {"poem": path_ref("missing", "poem")},
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `unknown step "missing"`) {
+		t.Fatalf("Load() error = %v, want unknown step error", err)
+	}
+}
+
+func TestLoaderRejectsOutputReferenceToUnknownArtifact(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "bad",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        task(
+            id = "write_poem",
+            prompt = "hello",
+            artifacts = {"poem": artifact("docs/poem.md")},
+            result_keys = ["ok"],
+        ),
+    ],
+    output_artifacts = {"review": path_ref("write_poem", "review")},
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `step "write_poem" does not declare artifact "review"`) {
+		t.Fatalf("Load() error = %v, want unknown artifact error", err)
+	}
+}
+
+func TestLoaderRejectsOutputReferenceToUnknownResult(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "bad",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        task(
+            id = "write_poem",
+            prompt = "hello",
+            artifacts = {"poem": artifact("docs/poem.md")},
+            result_keys = ["ok"],
+        ),
+    ],
+    output_results = {"missing": json_ref("write_poem", "missing")},
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `step "write_poem" does not declare result key "missing"`) {
+		t.Fatalf("Load() error = %v, want unknown result error", err)
+	}
+}
+
+func TestLoaderAcceptsOutputReferenceToLoopBodyTask(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "poem",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        repeat_until(
+            id = "review_until_ready",
+            max_iters = 1,
+            steps = [
+                task(
+                    id = "review_poem",
+                    prompt = "hello",
+                    artifacts = {"review": artifact("docs/review.md")},
+                    result_keys = ["outcome"],
+                ),
+            ],
+            until = eq(json_ref("review_poem", "outcome"), "ready"),
+        ),
+    ],
+    output_artifacts = {"review": path_ref("review_poem", "review")},
+    output_results = {"outcome": json_ref("review_poem", "outcome")},
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	if _, err := loader.Load(workflowPath); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+}
+
 func TestLoaderRejectsForwardReference(t *testing.T) {
 	baseDir := t.TempDir()
 	writeFile(t, filepath.Join(baseDir, "agents", "writer.md"), `Read "${POEM_PATH}".`)

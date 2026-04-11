@@ -14,12 +14,16 @@ func (l Loader) builtinWorkflow(_ *starlark.Thread, builtin *starlark.Builtin, a
 	var inputsValue starlark.Value = starlark.None
 	var stepsValue starlark.Value
 	var defaultExecutorValue starlark.Value = starlark.None
+	var outputArtifactsValue starlark.Value = starlark.None
+	var outputResultsValue starlark.Value = starlark.None
 
 	if err := starlark.UnpackArgs(builtin.Name(), args, kwargs,
 		"id", &id,
 		"inputs?", &inputsValue,
 		"steps", &stepsValue,
 		"default_executor?", &defaultExecutorValue,
+		"output_artifacts?", &outputArtifactsValue,
+		"output_results?", &outputResultsValue,
 	); err != nil {
 		return nil, err
 	}
@@ -39,12 +43,23 @@ func (l Loader) builtinWorkflow(_ *starlark.Thread, builtin *starlark.Builtin, a
 		return nil, err
 	}
 
+	outputArtifacts, err := unpackOptionalStringExprMap(outputArtifactsValue, "output_artifacts")
+	if err != nil {
+		return nil, err
+	}
+	outputResults, err := unpackOptionalValueExprMap(outputResultsValue, "output_results")
+	if err != nil {
+		return nil, err
+	}
+
 	return &workflowValue{
 		workflow: &workflow.Workflow{
 			ID:              id,
 			Inputs:          inputs,
 			DefaultExecutor: defaultExecutor,
 			Steps:           steps,
+			OutputArtifacts: outputArtifacts,
+			OutputResults:   outputResults,
 		},
 	}, nil
 }
@@ -381,6 +396,56 @@ func unpackOptionalStringList(value starlark.Value, field string) ([]string, err
 		return nil, nil
 	}
 	return unpackStringList(value, field)
+}
+
+func unpackOptionalStringExprMap(value starlark.Value, field string) (map[string]workflow.StringExpr, error) {
+	if value == starlark.None {
+		return nil, nil
+	}
+
+	dict, ok := value.(*starlark.Dict)
+	if !ok {
+		return nil, fmt.Errorf("%s must be a dict", field)
+	}
+
+	exprs := make(map[string]workflow.StringExpr, dict.Len())
+	for _, item := range dict.Items() {
+		key, ok := starlark.AsString(item[0])
+		if !ok {
+			return nil, fmt.Errorf("%s keys must be strings", field)
+		}
+		expr, err := unpackStringExpr(item[1])
+		if err != nil {
+			return nil, fmt.Errorf("%s %q: %w", field, key, err)
+		}
+		exprs[key] = expr
+	}
+	return exprs, nil
+}
+
+func unpackOptionalValueExprMap(value starlark.Value, field string) (map[string]workflow.ValueExpr, error) {
+	if value == starlark.None {
+		return nil, nil
+	}
+
+	dict, ok := value.(*starlark.Dict)
+	if !ok {
+		return nil, fmt.Errorf("%s must be a dict", field)
+	}
+
+	exprs := make(map[string]workflow.ValueExpr, dict.Len())
+	for _, item := range dict.Items() {
+		key, ok := starlark.AsString(item[0])
+		if !ok {
+			return nil, fmt.Errorf("%s keys must be strings", field)
+		}
+		expr, err := unpackValueExpr(item[1])
+		if err != nil {
+			return nil, fmt.Errorf("%s %q: %w", field, key, err)
+		}
+		exprs[key] = expr
+	}
+	return exprs, nil
 }
 
 func unpackOptionalExecutor(value starlark.Value) (*workflow.ExecutorConfig, error) {

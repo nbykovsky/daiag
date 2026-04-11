@@ -13,7 +13,7 @@ type Validator struct {
 	Inputs  map[string]string
 }
 
-type taskInfo struct {
+type nodeInfo struct {
 	artifacts  map[string]struct{}
 	resultKeys map[string]struct{}
 }
@@ -37,11 +37,14 @@ func (v Validator) Validate(wf *Workflow) error {
 		}
 	}
 
-	seenTasks := make(map[string]taskInfo)
+	seenNodes := make(map[string]nodeInfo)
 	allIDs := make(map[string]struct{})
 
-	_, err = v.validateSteps(wf.Steps, seenTasks, allIDs, wf.DefaultExecutor, map[string]struct{}{}, declaredInputs)
+	finalScope, err := v.validateSteps(wf.Steps, seenNodes, allIDs, wf.DefaultExecutor, map[string]struct{}{}, declaredInputs)
 	if err != nil {
+		return err
+	}
+	if err := v.validateWorkflowOutputs(wf, finalScope, declaredInputs); err != nil {
 		return err
 	}
 
@@ -62,8 +65,8 @@ func (v Validator) validateInputs(inputs []string) (map[string]struct{}, error) 
 	return declared, nil
 }
 
-func (v Validator) validateSteps(steps []Node, seenTasks map[string]taskInfo, allIDs map[string]struct{}, defaultExecutor *ExecutorConfig, activeLoops map[string]struct{}, declaredInputs map[string]struct{}) (map[string]taskInfo, error) {
-	current := cloneTaskInfoMap(seenTasks)
+func (v Validator) validateSteps(steps []Node, seenNodes map[string]nodeInfo, allIDs map[string]struct{}, defaultExecutor *ExecutorConfig, activeLoops map[string]struct{}, declaredInputs map[string]struct{}) (map[string]nodeInfo, error) {
+	current := cloneNodeInfoMap(seenNodes)
 
 	for _, node := range steps {
 		if node == nil {
@@ -82,7 +85,7 @@ func (v Validator) validateSteps(steps []Node, seenTasks map[string]taskInfo, al
 			if err := v.validateTask(n, current, defaultExecutor, activeLoops, declaredInputs); err != nil {
 				return nil, fmt.Errorf("task %q: %w", n.ID, err)
 			}
-			current[n.ID] = taskInfo{
+			current[n.ID] = nodeInfo{
 				artifacts:  artifactKeySet(n.Artifacts),
 				resultKeys: stringKeySet(n.ResultKeys),
 			}
@@ -108,7 +111,7 @@ func (v Validator) validateSteps(steps []Node, seenTasks map[string]taskInfo, al
 	return current, nil
 }
 
-func (v Validator) validateTask(task *Task, seenTasks map[string]taskInfo, defaultExecutor *ExecutorConfig, activeLoops map[string]struct{}, declaredInputs map[string]struct{}) error {
+func (v Validator) validateTask(task *Task, seenNodes map[string]nodeInfo, defaultExecutor *ExecutorConfig, activeLoops map[string]struct{}, declaredInputs map[string]struct{}) error {
 	if task.Prompt.TemplatePath == "" && task.Prompt.Inline == "" {
 		return fmt.Errorf("prompt is required")
 	}
@@ -150,7 +153,7 @@ func (v Validator) validateTask(task *Task, seenTasks map[string]taskInfo, defau
 		if name == "" {
 			return fmt.Errorf("prompt vars must not contain empty keys")
 		}
-		if err := validateStringExpr(expr, seenTasks, activeLoops, declaredInputs); err != nil {
+		if err := validateStringExpr(expr, seenNodes, activeLoops, declaredInputs); err != nil {
 			return fmt.Errorf("prompt var %q: %w", name, err)
 		}
 	}
@@ -159,11 +162,31 @@ func (v Validator) validateTask(task *Task, seenTasks map[string]taskInfo, defau
 		if key == "" {
 			return fmt.Errorf("artifacts must not contain empty keys")
 		}
-		if err := validateStringExpr(expr, seenTasks, activeLoops, declaredInputs); err != nil {
+		if err := validateStringExpr(expr, seenNodes, activeLoops, declaredInputs); err != nil {
 			return fmt.Errorf("artifact %q: %w", key, err)
 		}
 	}
 
+	return nil
+}
+
+func (v Validator) validateWorkflowOutputs(wf *Workflow, seenNodes map[string]nodeInfo, declaredInputs map[string]struct{}) error {
+	for key, expr := range wf.OutputArtifacts {
+		if key == "" {
+			return fmt.Errorf("output_artifacts must not contain empty keys")
+		}
+		if err := validateStringExpr(expr, seenNodes, map[string]struct{}{}, declaredInputs); err != nil {
+			return fmt.Errorf("output_artifacts %q: %w", key, err)
+		}
+	}
+	for key, expr := range wf.OutputResults {
+		if key == "" {
+			return fmt.Errorf("output_results must not contain empty keys")
+		}
+		if err := validateValueExpr(expr, seenNodes, map[string]struct{}{}, declaredInputs); err != nil {
+			return fmt.Errorf("output_results %q: %w", key, err)
+		}
+	}
 	return nil
 }
 
@@ -190,13 +213,13 @@ func (v Validator) validatePromptTemplate(prompt Prompt) error {
 	return nil
 }
 
-func (v Validator) validatePredicate(predicate Predicate, seenTasks map[string]taskInfo, activeLoops map[string]struct{}, declaredInputs map[string]struct{}) error {
+func (v Validator) validatePredicate(predicate Predicate, seenNodes map[string]nodeInfo, activeLoops map[string]struct{}, declaredInputs map[string]struct{}) error {
 	switch p := predicate.(type) {
 	case EqPredicate:
-		if err := validateValueExpr(p.Left, seenTasks, activeLoops, declaredInputs); err != nil {
+		if err := validateValueExpr(p.Left, seenNodes, activeLoops, declaredInputs); err != nil {
 			return err
 		}
-		if err := validateValueExpr(p.Right, seenTasks, activeLoops, declaredInputs); err != nil {
+		if err := validateValueExpr(p.Right, seenNodes, activeLoops, declaredInputs); err != nil {
 			return err
 		}
 		return nil
@@ -205,7 +228,7 @@ func (v Validator) validatePredicate(predicate Predicate, seenTasks map[string]t
 	}
 }
 
-func validateStringExpr(expr StringExpr, seenTasks map[string]taskInfo, activeLoops map[string]struct{}, declaredInputs map[string]struct{}) error {
+func validateStringExpr(expr StringExpr, seenNodes map[string]nodeInfo, activeLoops map[string]struct{}, declaredInputs map[string]struct{}) error {
 	switch e := expr.(type) {
 	case Literal:
 		if e.Value == "" {
@@ -220,13 +243,13 @@ func validateStringExpr(expr StringExpr, seenTasks map[string]taskInfo, activeLo
 			if name == "" {
 				return fmt.Errorf("format args must not contain empty keys")
 			}
-			if err := validateValueExpr(value, seenTasks, activeLoops, declaredInputs); err != nil {
+			if err := validateValueExpr(value, seenNodes, activeLoops, declaredInputs); err != nil {
 				return fmt.Errorf("format arg %q: %w", name, err)
 			}
 		}
 		return nil
 	case PathRef:
-		info, ok := seenTasks[e.StepID]
+		info, ok := seenNodes[e.StepID]
 		if !ok {
 			return fmt.Errorf("unknown step %q", e.StepID)
 		}
@@ -247,7 +270,7 @@ func validateStringExpr(expr StringExpr, seenTasks map[string]taskInfo, activeLo
 	}
 }
 
-func validateValueExpr(expr ValueExpr, seenTasks map[string]taskInfo, activeLoops map[string]struct{}, declaredInputs map[string]struct{}) error {
+func validateValueExpr(expr ValueExpr, seenNodes map[string]nodeInfo, activeLoops map[string]struct{}, declaredInputs map[string]struct{}) error {
 	switch e := expr.(type) {
 	case Literal:
 		if e.Value == "" {
@@ -257,11 +280,11 @@ func validateValueExpr(expr ValueExpr, seenTasks map[string]taskInfo, activeLoop
 	case IntLiteral:
 		return nil
 	case FormatExpr:
-		return validateStringExpr(e, seenTasks, activeLoops, declaredInputs)
+		return validateStringExpr(e, seenNodes, activeLoops, declaredInputs)
 	case PathRef:
-		return validateStringExpr(e, seenTasks, activeLoops, declaredInputs)
+		return validateStringExpr(e, seenNodes, activeLoops, declaredInputs)
 	case JSONRef:
-		info, ok := seenTasks[e.StepID]
+		info, ok := seenNodes[e.StepID]
 		if !ok {
 			return fmt.Errorf("unknown step %q", e.StepID)
 		}
@@ -281,7 +304,7 @@ func validateValueExpr(expr ValueExpr, seenTasks map[string]taskInfo, activeLoop
 		}
 		return nil
 	case InputRef:
-		return validateStringExpr(e, seenTasks, activeLoops, declaredInputs)
+		return validateStringExpr(e, seenNodes, activeLoops, declaredInputs)
 	default:
 		return fmt.Errorf("unsupported value expression type %T", expr)
 	}
@@ -295,8 +318,8 @@ func artifactKeySet(artifacts map[string]StringExpr) map[string]struct{} {
 	return keys
 }
 
-func cloneTaskInfoMap(src map[string]taskInfo) map[string]taskInfo {
-	dst := make(map[string]taskInfo, len(src))
+func cloneNodeInfoMap(src map[string]nodeInfo) map[string]nodeInfo {
+	dst := make(map[string]nodeInfo, len(src))
 	for key, value := range src {
 		dst[key] = value
 	}

@@ -7,6 +7,8 @@ type Workflow struct {
 	Inputs          []string
 	DefaultExecutor *ExecutorConfig
 	Steps           []Node
+	OutputArtifacts map[string]StringExpr
+	OutputResults   map[string]ValueExpr
 }
 
 type ExecutorConfig struct {
