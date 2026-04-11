@@ -1,0 +1,1 @@
+../../../.daiag/skills/workflow-author/SKILL.md

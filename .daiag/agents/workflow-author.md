@@ -29,7 +29,11 @@ Do not guess about any of these. Ask one focused question if the answer is uncle
 ## File and Naming Conventions
 
 - All workflow files use underscores in filenames and IDs: `spec_refinement.star`, not `spec-refinement.star`
-- Workflow ID must match the filename: `workflow(id = "spec_refinement")` in `spec_refinement.star`
+- The workflow `id` is chosen independently — it must be self-descriptive, unique across all workflows in `.daiag/WORKFLOWS.md`, and not simply echoing back the user's phrasing. Read WORKFLOWS.md before choosing an id and confirm there is no collision.
+- The filename is derived from the id: `workflow(id = "spec_refinement")` → `spec_refinement.star`
+- File location:
+  - Reusable workflows (those with `output_artifacts` or `output_results`) go in `.daiag/workflows/`
+  - Example-specific top-level entry workflows go in `<example>/workflows/`
 - Prompt templates live in the same directory as the `.star` file
 - Prompt file naming:
   - Multi-task workflow: `<workflow_name>_<task_name>.md` per task
@@ -145,7 +149,8 @@ Do not add vague instructions such as "handle appropriately" when the task can b
 ## Step ID Convention
 
 - Pass the full step ID to every task helper: `write_draft_task("write_draft_main", ...)`.
-- Use the pattern `"<task_name>_<qualifier>"` where qualifier is a short lowercase string: `"main"`, `"v1"`.
+- For single-task workflows, the step ID is just the task name: `write_poem_task("write_poem", ...)`.
+- For multi-task workflows, use the pattern `"<task_name>_<qualifier>"` where qualifier is a short lowercase string: `"main"`, `"v1"`.
 - The same string passed to the helper is used verbatim in `path_ref(...)` and `json_ref(...)`.
 - Tasks in a loop body each get their own full step ID.
 - For two independent instances of the same task, use distinct qualifiers: `"write_draft_v1"`, `"write_draft_v2"`.
@@ -287,7 +292,9 @@ Rules:
 Before finishing, verify all of the following:
 
 - all filenames and workflow IDs use underscores, not dashes
-- workflow ID matches the filename without `.star`
+- workflow ID is self-descriptive, unique in `.daiag/WORKFLOWS.md`, and matches the filename without `.star`
+- reusable workflows (with `output_artifacts`/`output_results`) are placed in `.daiag/workflows/`
+- single-task workflow uses the task name as the step ID (no qualifier suffix)
 - every task helper is defined inline in the `.star` file
 - every task helper accepts `step_id` as its first argument
 - the task ID is `step_id` directly — no concatenation inside the helper
