@@ -11,6 +11,7 @@ import (
 
 type Loader struct {
 	Params  map[string]string
+	Inputs  map[string]string
 	BaseDir string
 }
 
@@ -48,7 +49,10 @@ func (l Loader) Load(path string) (*workflow.Workflow, error) {
 		return nil, fmt.Errorf("top-level wf must be a workflow, got %s", raw.Type())
 	}
 
-	validator := workflow.Validator{BaseDir: baseDir}
+	validator := workflow.Validator{
+		BaseDir: baseDir,
+		Inputs:  l.validationInputs(),
+	}
 	if err := validator.Validate(wfValue.workflow); err != nil {
 		return nil, err
 	}
@@ -65,6 +69,7 @@ func (l Loader) predeclared() starlark.StringDict {
 		"path_ref":     starlark.NewBuiltin("path_ref", l.builtinPathRef),
 		"json_ref":     starlark.NewBuiltin("json_ref", l.builtinJSONRef),
 		"loop_iter":    starlark.NewBuiltin("loop_iter", l.builtinLoopIter),
+		"input":        starlark.NewBuiltin("input", l.builtinInput),
 		"template_file": starlark.NewBuiltin(
 			"template_file",
 			l.builtinTemplateFile,
@@ -73,4 +78,11 @@ func (l Loader) predeclared() starlark.StringDict {
 		"format": starlark.NewBuiltin("format", l.builtinFormat),
 		"eq":     starlark.NewBuiltin("eq", l.builtinEq),
 	}
+}
+
+func (l Loader) validationInputs() map[string]string {
+	if l.Inputs != nil {
+		return l.Inputs
+	}
+	return l.Params
 }

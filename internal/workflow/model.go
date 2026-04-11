@@ -4,6 +4,7 @@ import "path/filepath"
 
 type Workflow struct {
 	ID              string
+	Inputs          []string
 	DefaultExecutor *ExecutorConfig
 	Steps           []Node
 }
@@ -113,6 +114,14 @@ type LoopIter struct {
 }
 
 func (LoopIter) valueExpr() {}
+
+type InputRef struct {
+	Name string
+}
+
+func (InputRef) valueExpr() {}
+
+func (InputRef) stringExpr() {}
 
 type FormatExpr struct {
 	Template string

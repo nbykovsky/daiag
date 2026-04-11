@@ -38,6 +38,7 @@ type RunInput struct {
 	WorkflowPath string
 	BaseDir      string
 	Workdir      string
+	Inputs       map[string]any
 }
 
 type Engine struct {
@@ -49,6 +50,7 @@ type state struct {
 	artifacts map[string]map[string]string
 	results   map[string]map[string]any
 	loops     map[string]int
+	inputs    map[string]any
 }
 
 func (e Engine) Run(ctx context.Context, input RunInput) error {
@@ -60,6 +62,7 @@ func (e Engine) Run(ctx context.Context, input RunInput) error {
 		artifacts: make(map[string]map[string]string),
 		results:   make(map[string]map[string]any),
 		loops:     make(map[string]int),
+		inputs:    cloneAnyMap(input.Inputs),
 	}
 
 	if e.Logger != nil {
@@ -325,6 +328,12 @@ func resolveStringExpr(expr workflow.StringExpr, st *state) (string, error) {
 			return "", fmt.Errorf("missing artifact %q on step %q", e.ArtifactKey, e.StepID)
 		}
 		return path, nil
+	case workflow.InputRef:
+		value, ok := st.inputs[e.Name]
+		if !ok {
+			return "", fmt.Errorf("missing input %q", e.Name)
+		}
+		return fmt.Sprint(value), nil
 	default:
 		return "", fmt.Errorf("unsupported string expression type %T", expr)
 	}
@@ -356,9 +365,23 @@ func resolveValueExpr(expr workflow.ValueExpr, st *state) (any, error) {
 			return nil, fmt.Errorf("loop %q is not active", e.LoopID)
 		}
 		return iter, nil
+	case workflow.InputRef:
+		value, ok := st.inputs[e.Name]
+		if !ok {
+			return nil, fmt.Errorf("missing input %q", e.Name)
+		}
+		return value, nil
 	default:
 		return nil, fmt.Errorf("unsupported value expression type %T", expr)
 	}
+}
+
+func cloneAnyMap(src map[string]any) map[string]any {
+	dst := make(map[string]any, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
 }
 
 func renderFormatExpr(expr workflow.FormatExpr, st *state) (string, error) {

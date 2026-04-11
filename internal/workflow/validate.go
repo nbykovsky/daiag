@@ -10,6 +10,7 @@ var placeholderPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
 type Validator struct {
 	BaseDir string
+	Inputs  map[string]string
 }
 
 type taskInfo struct {
@@ -25,10 +26,21 @@ func (v Validator) Validate(wf *Workflow) error {
 		return fmt.Errorf("workflow ID is empty")
 	}
 
+	declaredInputs, err := v.validateInputs(wf.Inputs)
+	if err != nil {
+		return err
+	}
+	availableInputs := stringKeySetFromMap(v.Inputs)
+	for name := range declaredInputs {
+		if _, ok := availableInputs[name]; !ok {
+			return fmt.Errorf("missing workflow input %q", name)
+		}
+	}
+
 	seenTasks := make(map[string]taskInfo)
 	allIDs := make(map[string]struct{})
 
-	_, err := v.validateSteps(wf.Steps, seenTasks, allIDs, wf.DefaultExecutor, map[string]struct{}{})
+	_, err = v.validateSteps(wf.Steps, seenTasks, allIDs, wf.DefaultExecutor, map[string]struct{}{}, declaredInputs)
 	if err != nil {
 		return err
 	}
@@ -36,7 +48,21 @@ func (v Validator) Validate(wf *Workflow) error {
 	return nil
 }
 
-func (v Validator) validateSteps(steps []Node, seenTasks map[string]taskInfo, allIDs map[string]struct{}, defaultExecutor *ExecutorConfig, activeLoops map[string]struct{}) (map[string]taskInfo, error) {
+func (v Validator) validateInputs(inputs []string) (map[string]struct{}, error) {
+	declared := make(map[string]struct{}, len(inputs))
+	for _, name := range inputs {
+		if name == "" {
+			return nil, fmt.Errorf("workflow inputs must not contain empty values")
+		}
+		if _, ok := declared[name]; ok {
+			return nil, fmt.Errorf("workflow inputs must be unique")
+		}
+		declared[name] = struct{}{}
+	}
+	return declared, nil
+}
+
+func (v Validator) validateSteps(steps []Node, seenTasks map[string]taskInfo, allIDs map[string]struct{}, defaultExecutor *ExecutorConfig, activeLoops map[string]struct{}, declaredInputs map[string]struct{}) (map[string]taskInfo, error) {
 	current := cloneTaskInfoMap(seenTasks)
 
 	for _, node := range steps {
@@ -53,7 +79,7 @@ func (v Validator) validateSteps(steps []Node, seenTasks map[string]taskInfo, al
 
 		switch n := node.(type) {
 		case *Task:
-			if err := v.validateTask(n, current, defaultExecutor, activeLoops); err != nil {
+			if err := v.validateTask(n, current, defaultExecutor, activeLoops, declaredInputs); err != nil {
 				return nil, fmt.Errorf("task %q: %w", n.ID, err)
 			}
 			current[n.ID] = taskInfo{
@@ -66,11 +92,11 @@ func (v Validator) validateSteps(steps []Node, seenTasks map[string]taskInfo, al
 			}
 			loopScope := cloneStringSet(activeLoops)
 			loopScope[n.ID] = struct{}{}
-			loopSeen, err := v.validateSteps(n.Steps, current, allIDs, defaultExecutor, loopScope)
+			loopSeen, err := v.validateSteps(n.Steps, current, allIDs, defaultExecutor, loopScope, declaredInputs)
 			if err != nil {
 				return nil, err
 			}
-			if err := v.validatePredicate(n.Until, loopSeen, loopScope); err != nil {
+			if err := v.validatePredicate(n.Until, loopSeen, loopScope, declaredInputs); err != nil {
 				return nil, fmt.Errorf("repeat_until %q: %w", n.ID, err)
 			}
 			current = loopSeen
@@ -82,7 +108,7 @@ func (v Validator) validateSteps(steps []Node, seenTasks map[string]taskInfo, al
 	return current, nil
 }
 
-func (v Validator) validateTask(task *Task, seenTasks map[string]taskInfo, defaultExecutor *ExecutorConfig, activeLoops map[string]struct{}) error {
+func (v Validator) validateTask(task *Task, seenTasks map[string]taskInfo, defaultExecutor *ExecutorConfig, activeLoops map[string]struct{}, declaredInputs map[string]struct{}) error {
 	if task.Prompt.TemplatePath == "" && task.Prompt.Inline == "" {
 		return fmt.Errorf("prompt is required")
 	}
@@ -124,7 +150,7 @@ func (v Validator) validateTask(task *Task, seenTasks map[string]taskInfo, defau
 		if name == "" {
 			return fmt.Errorf("prompt vars must not contain empty keys")
 		}
-		if err := validateStringExpr(expr, seenTasks, activeLoops); err != nil {
+		if err := validateStringExpr(expr, seenTasks, activeLoops, declaredInputs); err != nil {
 			return fmt.Errorf("prompt var %q: %w", name, err)
 		}
 	}
@@ -133,7 +159,7 @@ func (v Validator) validateTask(task *Task, seenTasks map[string]taskInfo, defau
 		if key == "" {
 			return fmt.Errorf("artifacts must not contain empty keys")
 		}
-		if err := validateStringExpr(expr, seenTasks, activeLoops); err != nil {
+		if err := validateStringExpr(expr, seenTasks, activeLoops, declaredInputs); err != nil {
 			return fmt.Errorf("artifact %q: %w", key, err)
 		}
 	}
@@ -164,13 +190,13 @@ func (v Validator) validatePromptTemplate(prompt Prompt) error {
 	return nil
 }
 
-func (v Validator) validatePredicate(predicate Predicate, seenTasks map[string]taskInfo, activeLoops map[string]struct{}) error {
+func (v Validator) validatePredicate(predicate Predicate, seenTasks map[string]taskInfo, activeLoops map[string]struct{}, declaredInputs map[string]struct{}) error {
 	switch p := predicate.(type) {
 	case EqPredicate:
-		if err := validateValueExpr(p.Left, seenTasks, activeLoops); err != nil {
+		if err := validateValueExpr(p.Left, seenTasks, activeLoops, declaredInputs); err != nil {
 			return err
 		}
-		if err := validateValueExpr(p.Right, seenTasks, activeLoops); err != nil {
+		if err := validateValueExpr(p.Right, seenTasks, activeLoops, declaredInputs); err != nil {
 			return err
 		}
 		return nil
@@ -179,7 +205,7 @@ func (v Validator) validatePredicate(predicate Predicate, seenTasks map[string]t
 	}
 }
 
-func validateStringExpr(expr StringExpr, seenTasks map[string]taskInfo, activeLoops map[string]struct{}) error {
+func validateStringExpr(expr StringExpr, seenTasks map[string]taskInfo, activeLoops map[string]struct{}, declaredInputs map[string]struct{}) error {
 	switch e := expr.(type) {
 	case Literal:
 		if e.Value == "" {
@@ -194,7 +220,7 @@ func validateStringExpr(expr StringExpr, seenTasks map[string]taskInfo, activeLo
 			if name == "" {
 				return fmt.Errorf("format args must not contain empty keys")
 			}
-			if err := validateValueExpr(value, seenTasks, activeLoops); err != nil {
+			if err := validateValueExpr(value, seenTasks, activeLoops, declaredInputs); err != nil {
 				return fmt.Errorf("format arg %q: %w", name, err)
 			}
 		}
@@ -208,12 +234,20 @@ func validateStringExpr(expr StringExpr, seenTasks map[string]taskInfo, activeLo
 			return fmt.Errorf("step %q does not declare artifact %q", e.StepID, e.ArtifactKey)
 		}
 		return nil
+	case InputRef:
+		if e.Name == "" {
+			return fmt.Errorf("input name must not be empty")
+		}
+		if _, ok := declaredInputs[e.Name]; !ok {
+			return fmt.Errorf("unknown workflow input %q", e.Name)
+		}
+		return nil
 	default:
 		return fmt.Errorf("unsupported string expression type %T", expr)
 	}
 }
 
-func validateValueExpr(expr ValueExpr, seenTasks map[string]taskInfo, activeLoops map[string]struct{}) error {
+func validateValueExpr(expr ValueExpr, seenTasks map[string]taskInfo, activeLoops map[string]struct{}, declaredInputs map[string]struct{}) error {
 	switch e := expr.(type) {
 	case Literal:
 		if e.Value == "" {
@@ -223,9 +257,9 @@ func validateValueExpr(expr ValueExpr, seenTasks map[string]taskInfo, activeLoop
 	case IntLiteral:
 		return nil
 	case FormatExpr:
-		return validateStringExpr(e, seenTasks, activeLoops)
+		return validateStringExpr(e, seenTasks, activeLoops, declaredInputs)
 	case PathRef:
-		return validateStringExpr(e, seenTasks, activeLoops)
+		return validateStringExpr(e, seenTasks, activeLoops, declaredInputs)
 	case JSONRef:
 		info, ok := seenTasks[e.StepID]
 		if !ok {
@@ -246,6 +280,8 @@ func validateValueExpr(expr ValueExpr, seenTasks map[string]taskInfo, activeLoop
 			return fmt.Errorf("loop %q is not active in this scope", e.LoopID)
 		}
 		return nil
+	case InputRef:
+		return validateStringExpr(e, seenTasks, activeLoops, declaredInputs)
 	default:
 		return fmt.Errorf("unsupported value expression type %T", expr)
 	}
@@ -271,6 +307,14 @@ func stringKeySet(values []string) map[string]struct{} {
 	keys := make(map[string]struct{}, len(values))
 	for _, value := range values {
 		keys[value] = struct{}{}
+	}
+	return keys
+}
+
+func stringKeySetFromMap(values map[string]string) map[string]struct{} {
+	keys := make(map[string]struct{}, len(values))
+	for key := range values {
+		keys[key] = struct{}{}
 	}
 	return keys
 }

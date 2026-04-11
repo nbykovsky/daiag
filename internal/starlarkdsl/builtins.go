@@ -11,14 +11,21 @@ import (
 
 func (l Loader) builtinWorkflow(_ *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var id string
+	var inputsValue starlark.Value = starlark.None
 	var stepsValue starlark.Value
 	var defaultExecutorValue starlark.Value = starlark.None
 
 	if err := starlark.UnpackArgs(builtin.Name(), args, kwargs,
 		"id", &id,
+		"inputs?", &inputsValue,
 		"steps", &stepsValue,
 		"default_executor?", &defaultExecutorValue,
 	); err != nil {
+		return nil, err
+	}
+
+	inputs, err := unpackOptionalStringList(inputsValue, "inputs")
+	if err != nil {
 		return nil, err
 	}
 
@@ -35,6 +42,7 @@ func (l Loader) builtinWorkflow(_ *starlark.Thread, builtin *starlark.Builtin, a
 	return &workflowValue{
 		workflow: &workflow.Workflow{
 			ID:              id,
+			Inputs:          inputs,
 			DefaultExecutor: defaultExecutor,
 			Steps:           steps,
 		},
@@ -162,6 +170,14 @@ func (l Loader) builtinLoopIter(_ *starlark.Thread, builtin *starlark.Builtin, a
 		return nil, err
 	}
 	return &loopIterValue{ref: workflow.LoopIter{LoopID: loopID}}, nil
+}
+
+func (l Loader) builtinInput(_ *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var name string
+	if err := starlark.UnpackArgs(builtin.Name(), args, kwargs, "name", &name); err != nil {
+		return nil, err
+	}
+	return &inputValue{ref: workflow.InputRef{Name: name}}, nil
 }
 
 func (l Loader) builtinTemplateFile(thread *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -360,6 +376,13 @@ func unpackStringList(value starlark.Value, field string) ([]string, error) {
 	return values, nil
 }
 
+func unpackOptionalStringList(value starlark.Value, field string) ([]string, error) {
+	if value == starlark.None {
+		return nil, nil
+	}
+	return unpackStringList(value, field)
+}
+
 func unpackOptionalExecutor(value starlark.Value) (*workflow.ExecutorConfig, error) {
 	if value == starlark.None {
 		return nil, nil
@@ -409,8 +432,10 @@ func unpackStringExpr(value starlark.Value) (workflow.StringExpr, error) {
 		return v.expr, nil
 	case *pathRefValue:
 		return v.ref, nil
+	case *inputValue:
+		return v.ref, nil
 	default:
-		return nil, fmt.Errorf("expected string, format, or path_ref, got %s", value.Type())
+		return nil, fmt.Errorf("expected string, format, path_ref, or input, got %s", value.Type())
 	}
 }
 
@@ -432,7 +457,9 @@ func unpackValueExpr(value starlark.Value) (workflow.ValueExpr, error) {
 		return v.ref, nil
 	case *loopIterValue:
 		return v.ref, nil
+	case *inputValue:
+		return v.ref, nil
 	default:
-		return nil, fmt.Errorf("expected string, int, format, path_ref, json_ref, or loop_iter, got %s", value.Type())
+		return nil, fmt.Errorf("expected string, int, format, path_ref, json_ref, loop_iter, or input, got %s", value.Type())
 	}
 }

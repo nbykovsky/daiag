@@ -10,7 +10,7 @@ import (
 )
 
 const usageText = `Usage:
-  daiag run --workflow <path> [--param key=value] [--workdir <path>] [--verbose]
+  daiag run --workflow <path> [--input key=value] [--param key=value] [--workdir <path>] [--verbose]
 
 Commands:
   run     Execute a workflow
@@ -28,6 +28,7 @@ type App struct {
 
 type RunConfig struct {
 	Workflow string
+	Inputs   map[string]string
 	Params   map[string]string
 	Workdir  string
 	Verbose  bool
@@ -76,6 +77,7 @@ func (a *App) printUsage(w io.Writer) {
 
 func parseRunArgs(args []string) (RunConfig, error) {
 	var cfg RunConfig
+	var inputs multiFlag
 	var params multiFlag
 
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
@@ -84,6 +86,7 @@ func parseRunArgs(args []string) (RunConfig, error) {
 	fs.StringVar(&cfg.Workflow, "workflow", "", "path to workflow file")
 	fs.StringVar(&cfg.Workdir, "workdir", "", "working directory")
 	fs.BoolVar(&cfg.Verbose, "verbose", false, "enable verbose output")
+	fs.Var(&inputs, "input", "workflow input in key=value form")
 	fs.Var(&params, "param", "workflow parameter in key=value form")
 
 	if err := fs.Parse(args); err != nil {
@@ -96,14 +99,32 @@ func parseRunArgs(args []string) (RunConfig, error) {
 		return RunConfig{}, errors.New("--workflow is required")
 	}
 
-	cfg.Params = make(map[string]string, len(params))
-	for _, raw := range params {
-		key, value, err := parseKeyValue(raw)
+	inputMap := make(map[string]string, len(inputs))
+	for _, raw := range inputs {
+		key, value, err := parseKeyValue("--input", raw)
 		if err != nil {
 			return RunConfig{}, err
 		}
-		cfg.Params[key] = value
+		inputMap[key] = value
 	}
+	paramMap := make(map[string]string, len(params))
+	for _, raw := range params {
+		key, value, err := parseKeyValue("--param", raw)
+		if err != nil {
+			return RunConfig{}, err
+		}
+		paramMap[key] = value
+	}
+
+	merged := cloneStringMap(inputMap)
+	for key, value := range paramMap {
+		if existing, ok := inputMap[key]; ok && existing != value {
+			return RunConfig{}, fmt.Errorf("conflicting workflow input %q from --input and --param", key)
+		}
+		merged[key] = value
+	}
+	cfg.Inputs = cloneStringMap(merged)
+	cfg.Params = cloneStringMap(merged)
 
 	return cfg, nil
 }
@@ -119,10 +140,18 @@ func (m *multiFlag) Set(value string) error {
 	return nil
 }
 
-func parseKeyValue(raw string) (string, string, error) {
+func parseKeyValue(flagName string, raw string) (string, string, error) {
 	key, value, ok := strings.Cut(raw, "=")
 	if !ok || key == "" || value == "" {
-		return "", "", fmt.Errorf("invalid --param %q, expected key=value", raw)
+		return "", "", fmt.Errorf("invalid %s %q, expected key=value", flagName, raw)
 	}
 	return key, value, nil
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	dst := make(map[string]string, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
 }

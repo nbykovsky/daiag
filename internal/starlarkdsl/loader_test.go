@@ -202,6 +202,115 @@ wf = workflow(id = "x", steps = [])`)
 	}
 }
 
+func TestLoaderLoadsWorkflowInputs(t *testing.T) {
+	baseDir := t.TempDir()
+	writeFile(t, filepath.Join(baseDir, "agents", "writer.md"), `Read "${SPEC_PATH}" and write "${POEM_PATH}".`)
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, workflowPath, `
+spec_path = input("spec_path")
+feature_dir = input("feature_dir")
+poem_path = format("{dir}/poem.md", dir = feature_dir)
+
+wf = workflow(
+    id = "poem",
+    inputs = ["spec_path", "feature_dir"],
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        task(
+            id = "write_poem",
+            prompt = template_file(
+                "agents/writer.md",
+                vars = {
+                    "SPEC_PATH": spec_path,
+                    "POEM_PATH": poem_path,
+                },
+            ),
+            artifacts = {"poem": artifact(poem_path)},
+            result_keys = ["ok"],
+        ),
+    ],
+)
+`)
+
+	loader := Loader{
+		Inputs: map[string]string{
+			"spec_path":   "docs/spec.md",
+			"feature_dir": "docs/features/rain",
+		},
+		BaseDir: baseDir,
+	}
+	wf, err := loader.Load(workflowPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := strings.Join(wf.Inputs, ","); got != "spec_path,feature_dir" {
+		t.Fatalf("Inputs = %q, want spec_path,feature_dir", got)
+	}
+}
+
+func TestLoaderRejectsDuplicateWorkflowInputs(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "bad",
+    inputs = ["name", "name"],
+    steps = [],
+)
+`)
+
+	loader := Loader{Inputs: map[string]string{"name": "rain"}, BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `workflow inputs must be unique`) {
+		t.Fatalf("Load() error = %v, want duplicate input error", err)
+	}
+}
+
+func TestLoaderRejectsUndeclaredInput(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, workflowPath, `
+name = input("name")
+wf = workflow(
+    id = "bad",
+    inputs = ["other"],
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        task(
+            id = "write_poem",
+            prompt = "hello",
+            artifacts = {"poem": artifact(name)},
+            result_keys = ["ok"],
+        ),
+    ],
+)
+`)
+
+	loader := Loader{Inputs: map[string]string{"other": "rain"}, BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `unknown workflow input "name"`) {
+		t.Fatalf("Load() error = %v, want undeclared input error", err)
+	}
+}
+
+func TestLoaderRejectsMissingWorkflowInput(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "bad",
+    inputs = ["name"],
+    steps = [],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `missing workflow input "name"`) {
+		t.Fatalf("Load() error = %v, want missing input error", err)
+	}
+}
+
 func TestLoaderRejectsForwardReference(t *testing.T) {
 	baseDir := t.TempDir()
 	writeFile(t, filepath.Join(baseDir, "agents", "writer.md"), `Read "${POEM_PATH}".`)

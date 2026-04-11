@@ -101,6 +101,19 @@ func (l *loopIterValue) String() string {
 	return fmt.Sprintf("loop_iter(loop=%q)", l.ref.LoopID)
 }
 
+type inputValue struct {
+	ref workflow.InputRef
+}
+
+func (*inputValue) Type() string          { return "input" }
+func (*inputValue) Freeze()               {}
+func (*inputValue) Truth() starlark.Bool  { return starlark.True }
+func (*inputValue) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: input") }
+
+func (i *inputValue) String() string {
+	return fmt.Sprintf("input(%q)", i.ref.Name)
+}
+
 type promptTemplateValue struct {
 	prompt workflow.Prompt
 }
@@ -162,6 +175,8 @@ func exprString(expr workflow.ValueExpr) string {
 		return fmt.Sprintf("json_ref(%q, %q)", e.StepID, e.Field)
 	case workflow.LoopIter:
 		return fmt.Sprintf("loop_iter(%q)", e.LoopID)
+	case workflow.InputRef:
+		return fmt.Sprintf("input(%q)", e.Name)
 	case workflow.FormatExpr:
 		return fmt.Sprintf("format(%q)", e.Template)
 	default:

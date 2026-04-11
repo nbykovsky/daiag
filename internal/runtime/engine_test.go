@@ -141,6 +141,76 @@ func TestEngineRunWorkflowWithLoop(t *testing.T) {
 	}
 }
 
+func TestEngineResolvesWorkflowInputs(t *testing.T) {
+	baseDir := t.TempDir()
+	writeFile(t, filepath.Join(baseDir, "agents", "writer.md"), `Read "${SPEC_PATH}" and write to "${POEM_PATH}".`)
+
+	var prompt string
+	engine := Engine{
+		Executors: map[string]Executor{
+			"codex": fakeExecutorFunc(func(_ context.Context, req TaskRequest) (TaskResponse, error) {
+				prompt = req.Prompt
+				writeFile(t, filepath.Join(baseDir, "docs", "features", "rain", "poem.md"), "one\n")
+				return TaskResponse{
+					Stdout:   `{"ok":true}`,
+					ExitCode: 0,
+				}, nil
+			}),
+		},
+	}
+
+	wf := &workflow.Workflow{
+		ID:              "poem",
+		Inputs:          []string{"feature_dir", "spec_path"},
+		DefaultExecutor: &workflow.ExecutorConfig{CLI: "codex", Model: "gpt-5.4"},
+		Steps: []workflow.Node{
+			&workflow.Task{
+				ID: "write_poem",
+				Prompt: workflow.Prompt{
+					TemplatePath: "agents/writer.md",
+					Vars: map[string]workflow.StringExpr{
+						"SPEC_PATH": workflow.InputRef{Name: "spec_path"},
+						"POEM_PATH": workflow.FormatExpr{
+							Template: "{dir}/poem.md",
+							Args: map[string]workflow.ValueExpr{
+								"dir": workflow.InputRef{Name: "feature_dir"},
+							},
+						},
+					},
+				},
+				Artifacts: map[string]workflow.StringExpr{
+					"poem": workflow.FormatExpr{
+						Template: "{dir}/poem.md",
+						Args: map[string]workflow.ValueExpr{
+							"dir": workflow.InputRef{Name: "feature_dir"},
+						},
+					},
+				},
+				ResultKeys: []string{"ok"},
+			},
+		},
+	}
+
+	err := engine.Run(context.Background(), RunInput{
+		Workflow: wf,
+		BaseDir:  baseDir,
+		Workdir:  baseDir,
+		Inputs: map[string]any{
+			"feature_dir": "docs/features/rain",
+			"spec_path":   "docs/features/rain/spec.md",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !strings.Contains(prompt, `Read "docs/features/rain/spec.md"`) {
+		t.Fatalf("prompt = %q, want resolved spec input", prompt)
+	}
+	if !strings.Contains(prompt, `write to "docs/features/rain/poem.md"`) {
+		t.Fatalf("prompt = %q, want resolved formatted input", prompt)
+	}
+}
+
 func TestEngineFailsWhenArtifactMissing(t *testing.T) {
 	baseDir := t.TempDir()
 	engine := Engine{
