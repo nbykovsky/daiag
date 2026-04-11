@@ -38,7 +38,7 @@ Four distinct directory concepts exist in a workflow run:
 | `workdir` | `--workdir` CLI flag | Artifact output root; executor CWD |
 | `projectdir` | parent of `.daiag/` relative to the calling `.star` module | Path value for reading project source files |
 | Module resolution dir | directory of the importing `.star` module | Starting point for resolving relative `load(...)` and `subworkflow(...)` paths |
-| Module allowed boundary | entry workflow directory or `--workflows-lib` root | Upper bound for module path validation — load paths must stay under this |
+| Module allowed boundary | entry workflow directory | Upper bound for module path validation — load paths must stay under this |
 
 `projectdir` is a plain path value available to workflows. It is not the
 module loading base and not the allowed boundary.
@@ -120,9 +120,9 @@ Failure rules:
 
 - If no `.daiag/` ancestor is found after reaching the filesystem root, fail
   at load time with a clear error naming the calling module and the path walked.
-- Workflows in a custom `--workflows-lib` that live outside any `.daiag/`
-  project must not call `projectdir()`. The error message should suggest
-  passing the project path as an explicit workflow input instead.
+- Workflows that live outside any `.daiag/` project must not call
+  `projectdir()`. The error message should suggest passing the project path as
+  an explicit workflow input instead.
 
 ### Artifact Path Resolution
 
@@ -217,9 +217,8 @@ the correct absolute path.
 
 1. **Separate module loading base from workdir** — fix `internal/cli/default_runner.go`
    and `internal/starlarkdsl/modules.go` to use the calling module's directory
-   as the module resolution directory and the entry workflow directory (or
-   `--workflows-lib` root) as the allowed boundary; never use `--workdir` for
-   either.
+   as the module resolution directory and the entry workflow directory as the
+   allowed boundary; never use `--workdir` for either.
 
 2. **Add `workdir()` symbolic expression** — add a new model type to
    `internal/workflow/model.go`; add a corresponding Starlark value to
