@@ -173,12 +173,15 @@ func (e Engine) runSubworkflow(ctx context.Context, input RunInput, st *state, s
 	if sub.Workflow == nil {
 		return stepError{StepID: sub.ID, Err: fmt.Errorf("workflow is not loaded")}
 	}
+	if e.Logger != nil {
+		e.Logger.SubworkflowStart(sub.ID, sub.Workflow.ID)
+	}
 
 	childInputs := make(map[string]any, len(sub.Inputs))
 	for key, expr := range sub.Inputs {
 		value, err := resolveValueExpr(expr, st)
 		if err != nil {
-			return stepError{StepID: sub.ID, Err: fmt.Errorf("resolve input %q: %w", key, err)}
+			return e.failSubworkflow(sub.ID, stepError{StepID: sub.ID, Err: fmt.Errorf("resolve input %q: %w", key, err)})
 		}
 		childInputs[key] = value
 	}
@@ -197,30 +200,46 @@ func (e Engine) runSubworkflow(ctx context.Context, input RunInput, st *state, s
 		Inputs:       childInputs,
 	}
 	if err := e.runNodes(ctx, childInput, childState, sub.Workflow.Steps); err != nil {
-		return err
+		return e.failSubworkflow(sub.ID, qualifySubworkflowError(sub.ID, err))
 	}
 
 	outputArtifacts := make(map[string]string, len(sub.Workflow.OutputArtifacts))
+	outputArtifactKeys := make([]string, 0, len(sub.Workflow.OutputArtifacts))
 	for key, expr := range sub.Workflow.OutputArtifacts {
 		value, err := resolveStringExpr(expr, childState)
 		if err != nil {
-			return stepError{StepID: sub.ID, Err: fmt.Errorf("resolve output artifact %q: %w", key, err)}
+			return e.failSubworkflow(sub.ID, stepError{StepID: sub.ID, Err: fmt.Errorf("resolve output artifact %q: %w", key, err)})
 		}
 		outputArtifacts[key] = value
+		outputArtifactKeys = append(outputArtifactKeys, key)
 	}
 	outputResults := make(map[string]any, len(sub.Workflow.OutputResults))
+	outputResultKeys := make([]string, 0, len(sub.Workflow.OutputResults))
 	for key, expr := range sub.Workflow.OutputResults {
 		value, err := resolveValueExpr(expr, childState)
 		if err != nil {
-			return stepError{StepID: sub.ID, Err: fmt.Errorf("resolve output result %q: %w", key, err)}
+			return e.failSubworkflow(sub.ID, stepError{StepID: sub.ID, Err: fmt.Errorf("resolve output result %q: %w", key, err)})
 		}
 		outputResults[key] = value
+		outputResultKeys = append(outputResultKeys, key)
 	}
 
 	st.artifacts[sub.ID] = outputArtifacts
 	st.results[sub.ID] = outputResults
 
+	if e.Logger != nil {
+		e.Logger.SubworkflowDone(sub.ID, logging.SortKeys(outputArtifactKeys), logging.SortKeys(outputResultKeys))
+	}
+
 	return nil
+}
+
+func (e Engine) failSubworkflow(id string, err error) error {
+	if e.Logger != nil {
+		stepID, _ := errStepID(err)
+		e.Logger.SubworkflowFailed(id, stepID, err)
+	}
+	return err
 }
 
 func (e Engine) runRepeatUntil(ctx context.Context, input RunInput, st *state, loop *workflow.RepeatUntil) error {
@@ -512,6 +531,17 @@ func errStepID(err error) (string, bool) {
 		return target.StepID, true
 	}
 	return "", false
+}
+
+func qualifySubworkflowError(subworkflowID string, err error) error {
+	var target stepError
+	if ok := asStepError(err, &target); ok {
+		return stepError{
+			StepID: subworkflowID + "." + target.StepID,
+			Err:    target.Err,
+		}
+	}
+	return stepError{StepID: subworkflowID, Err: err}
 }
 
 func asStepError(err error, target *stepError) bool {

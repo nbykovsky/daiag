@@ -39,6 +39,22 @@ func (l *Logger) StepDone(id string, artifacts []string, result map[string]any) 
 	l.printf("%s", strings.Join(fields, " "))
 }
 
+func (l *Logger) SubworkflowStart(id, workflowID string) {
+	l.printf("subworkflow start id=%s workflow=%s", id, workflowID)
+}
+
+func (l *Logger) SubworkflowDone(id string, artifacts []string, results []string) {
+	l.printf("subworkflow done id=%s artifacts=%s results=%s", id, strings.Join(artifacts, ","), strings.Join(results, ","))
+}
+
+func (l *Logger) SubworkflowFailed(id, stepID string, err error) {
+	if stepID != "" {
+		l.printf("subworkflow failed id=%s step=%s error=%s", id, stepID, err)
+		return
+	}
+	l.printf("subworkflow failed id=%s error=%s", id, err)
+}
+
 func (l *Logger) LoopIter(id string, n int) {
 	l.printf("loop iter id=%s n=%d", id, n)
 }

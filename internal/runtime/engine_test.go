@@ -499,6 +499,165 @@ func TestEngineSubworkflowInLoopUsesLatestOutput(t *testing.T) {
 	}
 }
 
+func TestEngineLogsSubworkflowStartAndDone(t *testing.T) {
+	baseDir := t.TempDir()
+	var logOutput bytes.Buffer
+	logger := logging.New(&logOutput)
+	logger.Now = func() time.Time {
+		return time.Date(2026, 4, 9, 12, 0, 1, 0, time.UTC)
+	}
+
+	engine := Engine{
+		Executors: map[string]Executor{
+			"codex": fakeExecutorFunc(func(_ context.Context, req TaskRequest) (TaskResponse, error) {
+				if req.WorkflowID != "child" || req.TaskID != "write" {
+					return TaskResponse{}, fmt.Errorf("unexpected task %s.%s", req.WorkflowID, req.TaskID)
+				}
+				writeFile(t, filepath.Join(baseDir, "docs", "child.md"), "child\n")
+				return TaskResponse{Stdout: `{"ok":true}`, ExitCode: 0}, nil
+			}),
+		},
+		Logger: logger,
+	}
+	child := &workflow.Workflow{
+		ID:              "child",
+		DefaultExecutor: &workflow.ExecutorConfig{CLI: "codex", Model: "gpt-5.4"},
+		Steps: []workflow.Node{
+			&workflow.Task{
+				ID:         "write",
+				Prompt:     workflow.Prompt{Inline: "child"},
+				Artifacts:  map[string]workflow.StringExpr{"child": workflow.Literal{Value: "docs/child.md"}},
+				ResultKeys: []string{"ok"},
+			},
+		},
+		OutputArtifacts: map[string]workflow.StringExpr{
+			"child": workflow.PathRef{StepID: "write", ArtifactKey: "child"},
+		},
+		OutputResults: map[string]workflow.ValueExpr{
+			"ok": workflow.JSONRef{StepID: "write", Field: "ok"},
+		},
+	}
+	parent := &workflow.Workflow{
+		ID: "parent",
+		Steps: []workflow.Node{
+			&workflow.Subworkflow{
+				ID:           "child",
+				WorkflowPath: "workflows/child.star",
+				Workflow:     child,
+				Inputs:       map[string]workflow.ValueExpr{},
+			},
+		},
+	}
+
+	if err := engine.Run(context.Background(), RunInput{Workflow: parent, BaseDir: baseDir, Workdir: baseDir}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	output := logOutput.String()
+	for _, fragment := range []string{
+		"subworkflow start id=child workflow=child",
+		"subworkflow done id=child artifacts=child results=ok",
+	} {
+		if !strings.Contains(output, fragment) {
+			t.Fatalf("log output missing %q:\n%s", fragment, output)
+		}
+	}
+}
+
+func TestEngineQualifiesSingleLevelSubworkflowFailure(t *testing.T) {
+	baseDir := t.TempDir()
+	var logOutput bytes.Buffer
+	engine := Engine{
+		Executors: map[string]Executor{
+			"codex": fakeExecutorFunc(func(_ context.Context, req TaskRequest) (TaskResponse, error) {
+				return TaskResponse{Stderr: "boom", ExitCode: 1}, nil
+			}),
+		},
+		Logger: logging.New(&logOutput),
+	}
+	child := &workflow.Workflow{
+		ID:              "spec_refinement",
+		DefaultExecutor: &workflow.ExecutorConfig{CLI: "codex", Model: "gpt-5.4"},
+		Steps: []workflow.Node{
+			&workflow.Task{
+				ID:         "review_spec",
+				Prompt:     workflow.Prompt{Inline: "review"},
+				Artifacts:  map[string]workflow.StringExpr{"review": workflow.Literal{Value: "docs/review.md"}},
+				ResultKeys: []string{"ok"},
+			},
+		},
+	}
+	parent := &workflow.Workflow{
+		ID: "parent",
+		Steps: []workflow.Node{
+			&workflow.Subworkflow{
+				ID:           "spec",
+				WorkflowPath: "workflows/spec.star",
+				Workflow:     child,
+				Inputs:       map[string]workflow.ValueExpr{},
+			},
+		},
+	}
+
+	err := engine.Run(context.Background(), RunInput{Workflow: parent, BaseDir: baseDir, Workdir: baseDir})
+	if err == nil || !strings.Contains(err.Error(), `step spec.review_spec`) {
+		t.Fatalf("Run() error = %v, want qualified child step", err)
+	}
+	if !strings.Contains(logOutput.String(), `subworkflow failed id=spec step=spec.review_spec`) {
+		t.Fatalf("log output missing qualified failure:\n%s", logOutput.String())
+	}
+}
+
+func TestEngineQualifiesNestedSubworkflowFailure(t *testing.T) {
+	baseDir := t.TempDir()
+	engine := Engine{
+		Executors: map[string]Executor{
+			"codex": fakeExecutorFunc(func(_ context.Context, req TaskRequest) (TaskResponse, error) {
+				return TaskResponse{Stderr: "boom", ExitCode: 1}, nil
+			}),
+		},
+	}
+	inner := &workflow.Workflow{
+		ID:              "inner",
+		DefaultExecutor: &workflow.ExecutorConfig{CLI: "codex", Model: "gpt-5.4"},
+		Steps: []workflow.Node{
+			&workflow.Task{
+				ID:         "inner_task",
+				Prompt:     workflow.Prompt{Inline: "inner"},
+				Artifacts:  map[string]workflow.StringExpr{"out": workflow.Literal{Value: "docs/out.md"}},
+				ResultKeys: []string{"ok"},
+			},
+		},
+	}
+	refine := &workflow.Workflow{
+		ID: "refine",
+		Steps: []workflow.Node{
+			&workflow.Subworkflow{
+				ID:           "refine",
+				WorkflowPath: "workflows/inner.star",
+				Workflow:     inner,
+				Inputs:       map[string]workflow.ValueExpr{},
+			},
+		},
+	}
+	parent := &workflow.Workflow{
+		ID: "parent",
+		Steps: []workflow.Node{
+			&workflow.Subworkflow{
+				ID:           "spec",
+				WorkflowPath: "workflows/refine.star",
+				Workflow:     refine,
+				Inputs:       map[string]workflow.ValueExpr{},
+			},
+		},
+	}
+
+	err := engine.Run(context.Background(), RunInput{Workflow: parent, BaseDir: baseDir, Workdir: baseDir})
+	if err == nil || !strings.Contains(err.Error(), `step spec.refine.inner_task`) {
+		t.Fatalf("Run() error = %v, want recursively qualified child step", err)
+	}
+}
+
 func TestEngineFailsWhenArtifactMissing(t *testing.T) {
 	baseDir := t.TempDir()
 	engine := Engine{
