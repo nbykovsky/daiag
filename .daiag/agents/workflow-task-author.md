@@ -14,7 +14,7 @@ Example for step `write_spec`:
 
 - `.daiag/tasks/write_spec.star`
 - `.daiag/tasks/write_spec.md`
-- `write_spec_task("phase1", ...) -> task(id = "write_spec_phase1", ...)`
+- `write_spec_task("write_spec_phase1", ...) -> task(id = "write_spec_phase1", ...)`
 
 ## Required Conventions
 
@@ -23,10 +23,10 @@ Example for step `write_spec`:
 3. Use the same base name for:
     - the file pair
     - the exported helper name, using `_task` as a suffix
-4. Every generated helper must accept a string parameter named `suffix` as its first argument.
-5. The task ID must be built from the base step name plus that suffix.
-6. Use this ID shape unless the caller asks otherwise: `"<step_name>_" + suffix`.
-7. `suffix` must be treated as required and non-empty.
+4. Every generated helper must accept a string parameter named `step_id` as its first argument.
+5. The task ID is `step_id` directly — do not concatenate or transform it.
+6. `step_id` must be treated as required and non-empty.
+7. By convention callers use `"<step_name>_<qualifier>"` (e.g. `"write_spec_phase1"`), but the helper does not enforce this.
 8. In the `.star` file, always reference the sibling prompt file with `template_file("<step_name>.md", vars = {...})`.
 9. Do not inline prompt text inside the `.star` file.
 10. Prefer a small exported helper function such as `def write_spec_task(suffix, ...):` that returns `task(...)`.
@@ -42,8 +42,8 @@ Example for step `write_spec`:
     - JSON fields declared in `result_keys`
 20. Every artifact value must be declared with `artifact(...)`.
 21. `result_keys` must match the JSON object returned on stdout exactly.
-22. `suffix` affects the task ID only unless the caller explicitly wants it used in paths or prompt variables.
-23. Use `suffix` for repeated task instances, including iteration-style instances.
+22. `step_id` is used only as the task ID — do not derive paths or prompt variables from it.
+23. For repeated task instances, callers pass distinct `step_id` values (e.g. `"write_spec_v1"`, `"write_spec_v2"`).
 
 ## Authoring Rules
 
@@ -56,12 +56,8 @@ Example for step `write_spec`:
 - Assume tasks are linear by default.
 - Use `format(...)` only when the task needs computed strings such as derived paths.
 - Do not use `loop_iter(...)` in generated tasks.
-- If a caller needs multiple executions of the same task, represent that through different `suffix` values instead.
-- If this task refers to another task instance, make that reference suffix-aware.
-- Never hardcode an unsuffixed upstream step ID when multiple task instances may exist.
-- For upstream references, either:
-  - accept the upstream step ID as an explicit helper argument, or
-  - accept the same suffix and build the referenced step ID from the same base-name-plus-suffix rule
+- If a caller needs multiple executions of the same task, they pass distinct `step_id` values.
+- If this task refers to another task instance, accept the upstream step ID as an explicit helper argument — never hardcode it.
 - Keep artifact declarations non-empty and explicit.
 - Keep `result_keys` aligned exactly with the JSON keys required in the prompt template.
 - If the task edits an existing file, say so clearly in the prompt and preserve unrelated content unless the task requires rewriting it.
@@ -125,8 +121,7 @@ Example files:
 Example `.star` file:
 
 ```python
-def write_draft_task(suffix, spec_path, draft_path):
-    step_id = "write_draft_" + suffix
+def write_draft_task(step_id, spec_path, draft_path):
     return task(
         id = step_id,
         prompt = template_file(
@@ -170,8 +165,7 @@ Do not wrap the JSON in Markdown fences.
 Use this shape unless there is a strong reason to do otherwise:
 
 ```python
-def <step_name>_task(suffix, ...):
-    step_id = "<step_name>_" + suffix
+def <step_name>_task(step_id, ...):
     return task(
         id = step_id,
         prompt = template_file(
@@ -194,8 +188,7 @@ def <step_name>_task(suffix, ...):
 If the caller explicitly requires a task-level executor, use:
 
 ```python
-def <step_name>_task(suffix, ...):
-    step_id = "<step_name>_" + suffix
+def <step_name>_task(step_id, ...):
     return task(
         id = step_id,
         executor = {"cli": "<cli>", "model": "<model>"},
@@ -219,16 +212,15 @@ def <step_name>_task(suffix, ...):
 Before finishing, verify all of the following:
 
 - the `.star` file exports exactly one helper named `<step_name>_task`
-- the helper accepts `suffix` as its first argument
-- the task ID is derived from the base step name plus `suffix`
-- the task ID pattern is stable and predictable, for example `write_spec_phase1`
+- the helper accepts `step_id` as its first argument
+- the task ID is `step_id` directly — no concatenation inside the helper
 - the prompt path is exactly `template_file("<step_name>.md", vars = {...})`
 - every `${NAME}` in the `.md` file appears in `vars`
 - every JSON key promised in the `.md` file appears in `result_keys`
 - every file the prompt says to create or update appears in `artifacts`
 - every artifact value is wrapped in `artifact(...)`
 - any `path_ref(...)` points to an earlier task output, not a JSON field
-- any `path_ref(...)` or `json_ref(...)` that targets another instanced task is suffix-aware
+- any `path_ref(...)` or `json_ref(...)` that targets another task uses an explicit `step_id` argument, not a hardcoded string
 - the prompt ends with `Do not wrap the JSON in Markdown fences.`
 
 ## Module Boundary

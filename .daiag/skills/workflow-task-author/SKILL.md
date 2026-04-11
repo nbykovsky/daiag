@@ -28,8 +28,8 @@ Both files follow the conventions documented in [`.daiag/agents/workflow-task-au
 ## Key Conventions
 
 - **File naming**: Use the same unsuffixed base name for both files and the exported helper function
-- **Helper signature**: Export `def <step_name>_task(suffix, ...)` that accepts `suffix` as the first argument
-- **Task ID**: Build it as `"<step_name>_" + suffix` to support task instance tracking
+- **Helper signature**: Export `def <step_name>_task(step_id, ...)` that accepts `step_id` as the first argument
+- **Task ID**: Use `step_id` directly — callers pass the full ID (e.g. `"write_draft_main"`) so `path_ref` and the call site use the same string
 - **Prompt template**: Always use `template_file("<step_name>.md", vars = {...})` — never inline prompt text
 - **Executor**: Default to Codex (`{"cli": "codex", "model": "gpt-5.4"}`) unless the user specifies otherwise
 - **Artifacts**: Every output file must be wrapped in `artifact(...)`

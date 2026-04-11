@@ -1,8 +1,8 @@
 # Workflow Author
 
-Create `daiag` workflow entry files at `.daiag/workflows/<name>.star`.
+Create `daiag` workflow entry files at `.daiag/workflows/<id>.star`.
 
-Your job is to turn a set of user requirements into a runnable workflow by writing `.daiag/workflows/<name>.star`.
+Your job is to turn a set of user requirements into a runnable workflow by writing `.daiag/workflows/<id>.star`.
 
 Tasks live in `.daiag/tasks/`. The workflow file only loads and wires them.
 Do not author task pairs. If a required task is missing, report it (see **Missing Tasks** below) and stop — do not write the workflow file until the user resolves all missing tasks.
@@ -11,33 +11,34 @@ Do not author task pairs. If a required task is missing, report it (see **Missin
 
 Before writing any file, ask the user for these if not already stated:
 
-1. **Workflow name** — becomes the filename (`<name>.star`) and `workflow(id = ...)`
-2. **Parameters** — what `param(...)` values does the workflow accept from the CLI?
-3. **Steps in order** — what does each step do, what does it read, what does it write?
-4. **Existing tasks** — which steps already have a task pair in `.daiag/tasks/`?
-5. **Loops** — are any steps iterative? If yes:
+1. **Workflow ID** — becomes the filename (`<id>.star`) and `workflow(id = ...)`; this is the workflow's own identity, not the runtime `name` param
+2. **Steps in order** — what does each step do, what does it read, what does it write?
+3. **Loops** — are any steps iterative? If yes:
    - which tasks form the loop body?
    - which result key from the last body task drives the exit condition?
    - what is the exit value for that key?
    - what is the maximum number of iterations?
-6. **Output paths** — where do artifact files live? Describe the path pattern.
+4. **Output paths** — where do artifact files live? Describe the path pattern relative to `workdir`.
 
 Do not guess about any of these. Ask one focused question if the answer is unclear.
 
+`name` and `workdir` are always declared as mandatory runtime `param(...)` values — do not ask about them.
+
 ## Workflow Entry File Conventions
 
-File location: `.daiag/workflows/<name>.star`
+File location: `.daiag/workflows/<id>.star`
 
 Rules:
 
 1. Load each task with `load("../tasks/<step>.star", "<step>_task")`.
-2. Declare all `param(...)` calls near the top of the file.
-3. Compute derived paths inline using `format(...)`. Do not create a separate paths module.
-4. Set `default_executor` on the workflow unless tasks all declare their own executor.
-5. Default executor is `{"cli": "codex", "model": "gpt-5.4"}` unless the caller requires otherwise.
-6. Instantiate each task by calling its helper: `<step>_task(suffix, ...)`.
-7. Pass concrete argument values — never pass a `paths` dict unless the task helper requires it.
-8. The `wf` variable must be assigned at the top level of the entry file.
+2. Always declare `name` and `workdir` as the first two `param(...)` calls.
+3. Declare any additional workflow-specific `param(...)` calls after `name` and `workdir`.
+4. Compute derived paths inline using `format(...)`, rooting them under `workdir`. Do not create a separate paths module.
+5. Set `default_executor` on the workflow unless tasks all declare their own executor.
+6. Default executor is `{"cli": "codex", "model": "gpt-5.4"}` unless the caller requires otherwise.
+7. Instantiate each task by calling its helper: `<step>_task(suffix, ...)`.
+8. Pass concrete argument values — never pass a `paths` dict unless the task helper requires it.
+9. The `wf` variable must be assigned at the top level of the entry file.
 
 Example entry file structure:
 
@@ -46,19 +47,20 @@ load("../tasks/write_draft.star", "write_draft_task")
 load("../tasks/review_draft.star", "review_draft_task")
 
 name = param("name")
-draft_path = format(".daiag/outputs/{name}/draft.md", name = name)
-review_path = format(".daiag/outputs/{name}/review.txt", name = name)
+workdir = param("workdir")
+draft_path = format("{workdir}/{name}/draft.md", workdir = workdir, name = name)
+review_path = format("{workdir}/{name}/review.txt", workdir = workdir, name = name)
 
 wf = workflow(
     id = "my_workflow",
     default_executor = {"cli": "codex", "model": "gpt-5.4"},
     steps = [
-        write_draft_task("main", topic = name, draft_path = draft_path),
+        write_draft_task("write_draft_main", topic = name, draft_path = draft_path),
         repeat_until(
             id = "review_loop",
             max_iters = 4,
             steps = [
-                review_draft_task("main",
+                review_draft_task("review_draft_main",
                     draft_path = path_ref("write_draft_main", "draft"),
                     review_path = review_path,
                 ),
@@ -69,13 +71,14 @@ wf = workflow(
 )
 ```
 
-## Suffix Rules
+## Step ID Convention
 
-- Suffix is a short lowercase string: `"main"`, `"draft"`, `"v1"`.
-- All tasks in a loop body share the same suffix. The loop handles iteration.
-- Use different suffixes for two independent instances of the same task in linear steps.
-- Suffix affects only the task ID. Do not derive paths from suffix unless the caller explicitly requires per-iteration artifact files.
-- When a task inside a loop references a task outside the loop, use that task's explicit step ID (e.g. `path_ref("write_draft_main", "draft")`).
+- Pass the full step ID to every task helper: `write_draft_task("write_draft_main", ...)`.
+- Use the pattern `"<step_name>_<qualifier>"` where qualifier is a short lowercase string: `"main"`, `"draft"`, `"v1"`.
+- The same string passed to the helper is used verbatim in `path_ref(...)` and `json_ref(...)` — no mental reconstruction needed.
+- Tasks in a loop body each get their own full step ID (e.g. `"extend_main"`, `"review_main"`).
+- For two independent instances of the same task, use distinct qualifiers: `"write_draft_v1"`, `"write_draft_v2"`.
+- Do not derive paths or prompt variables from the step ID.
 
 ## Path Construction
 
@@ -105,8 +108,8 @@ repeat_until(
     id = "review_loop",
     max_iters = 4,
     steps = [
-        extend_task("main", draft_path = path_ref("write_draft_main", "draft")),
-        review_task("main",
+        extend_task("extend_main", draft_path = path_ref("write_draft_main", "draft")),
+        review_task("review_main",
             draft_path = path_ref("extend_main", "draft"),
             review_path = review_path,
         ),
@@ -158,7 +161,8 @@ Do not write the workflow entry file until the user confirms all missing tasks h
 Before finishing, verify all of the following:
 
 - every `load(...)` path resolves to an existing file in `.daiag/tasks/`
-- every `param(...)` name matches the CLI `--param key=value` form the user intends to use
+- `name` and `workdir` are declared as `param(...)` — these are always mandatory
+- all derived paths are rooted under `workdir`
 - every task helper is called with all required arguments
 - every `path_ref(...)` names an earlier step and a declared artifact key on that step
 - every `json_ref(...)` names a declared result key on the referenced step
@@ -174,7 +178,7 @@ Before finishing, verify all of the following:
 
 When complete:
 
-- write `.daiag/workflows/<name>.star`
+- write `.daiag/workflows/<id>.star`
 - give the user a brief summary:
   1. workflow name and parameters
   2. steps in order

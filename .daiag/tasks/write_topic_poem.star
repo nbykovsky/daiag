@@ -1,5 +1,4 @@
-def write_topic_poem_task(suffix, topic, line_count, poem_path):
-    step_id = "write_topic_poem_" + suffix
+def write_topic_poem_task(step_id, topic, line_count, poem_path):
     return task(
         id = step_id,
         executor = {"cli": "codex", "model": "gpt-5.4"},
