@@ -8,43 +8,11 @@ compatibility: daiag project
 
 Your job is to turn the user's requirements into a runnable daiag workflow.
 
-Follow the conventions in [`.daiag/agents/workflow-author.md`](.daiag/agents/workflow-author.md).
+## Execution
 
-## Workflow
-
-1. **Load the guide** — Read `.daiag/agents/workflow-author.md` before writing any file.
-2. **Clarify requirements** — Ask the questions listed in the guide's "Required Clarifications" section. Do not skip any that are unanswered. Ask as one grouped message, not one question at a time.
-3. **Read the workflow index** — Read `.daiag/workflows/WORKFLOWS.md` to discover available workflows and their input/output contracts.
-4. **Write the workflow file** — Create `<dir>/<workflow_name>.star` with inline task definitions and sibling prompt templates.
-5. **Update the index** — Add or update the entry in `.daiag/workflows/WORKFLOWS.md`.
-6. **Validate** — Run through the validation checklist in the guide before reporting done.
-
-## What You Produce
-
-- `.daiag/workflows/<workflow_id>/<workflow_id>.star` — the runnable workflow entry file with inline tasks
-- `.daiag/workflows/<workflow_id>/<workflow_id>_<task_name>.md` per task (or `<workflow_id>.md` for single-task workflows)
-- Updated `.daiag/workflows/WORKFLOWS.md`
-
-## Key Rules
-
-- **Inline tasks** — define task helpers directly in the `.star` file, do not load from `.daiag/tasks/`
-- **Underscores everywhere** — filenames, workflow IDs, and task names all use underscores
-- **Prompt files are siblings** — prompt `.md` files live in the same directory as the `.star` file
-- **Sharing via subworkflow** — any workflow can be reused as a subworkflow; use `workflow(inputs = [...])` and declare `output_artifacts`/`output_results`
-- **No paths module** — compute paths inline with `format(...)` in the workflow entry file
-- **Step ID** — pass the full step ID to each task helper (e.g. `"write_draft_main"`); the same string is used in `path_ref(...)` and `json_ref(...)`
-- **Loops** — use `repeat_until(...)` when a step must retry until a quality or approval condition; the `until` predicate references a `json_ref` to the last task in the loop body
-
-## Questions to Ask
-
-Before writing files, ask the user:
-
-1. What is the workflow ID? (becomes the filename and `workflow(id = ...)` — use underscores)
-2. What are the steps in order — what does each one do, read, and write?
-3. Are any steps iterative? If yes: which tasks form the loop body, what result key and value exit the loop, and how many max iterations?
-4. What is the output path pattern for artifacts?
-5. Is this workflow intended to be reused as a subworkflow?
-
-## Don't Guess
-
-If the user hasn't specified the workflow ID, steps, or output paths — ask. These shape the entire file and cannot be inferred reliably.
+1. Read `.daiag/agents/workflow-author.md` — this is the source of truth. Follow it exactly.
+2. Read `.daiag/workflows/WORKFLOWS.md` — check available workflows and confirm the chosen id is unique.
+3. Ask the clarifying questions from the agent's "Required Clarifications" section. Ask them as one grouped message.
+4. Write the workflow files.
+5. Update `.daiag/workflows/WORKFLOWS.md`.
+6. Run the validation checklist from the agent file before reporting done.

@@ -4,11 +4,11 @@ Create `daiag` workflows as `.star` entry files with inline tasks and sibling pr
 
 Your job is to turn user requirements into:
 
-- `<dir>/<workflow_name>.star` — the workflow entry file with inline task definitions
-- `<dir>/<workflow_name>_<task_name>.md` — prompt template for each task
-- `<dir>/<workflow_name>.md` — prompt template for a single-task workflow
+- `.daiag/workflows/<workflow_id>/<workflow_id>.star` — the workflow entry file with inline task definitions
+- `.daiag/workflows/<workflow_id>/<workflow_id>_<task_name>.md` — prompt template per task (multi-task)
+- `.daiag/workflows/<workflow_id>/<workflow_id>.md` — prompt template (single-task)
 
-Both files live in the same directory. There is no separate task library.
+All files for a workflow live together in `.daiag/workflows/<workflow_id>/`. There is no separate task library.
 
 ## Required Clarifications
 
@@ -106,8 +106,8 @@ wf = workflow(
 - Define one helper function per task: `def <task_name>_task(step_id, ...): return task(...)`
 - Accept `step_id` as the first argument — pass it directly as `id = step_id`
 - Do not concatenate or transform `step_id`
-- Reference the sibling prompt with `template_file("<workflow_name>_<task_name>.md", vars = {...})`
-- For single-task workflows, reference the prompt as `template_file("<workflow_name>.md", vars = {...})`
+- Reference the sibling prompt with `template_file("<workflow_id>_<task_name>.md", vars = {...})`
+- For single-task workflows, reference the prompt as `template_file("<workflow_id>.md", vars = {...})`
 - Every task must declare non-empty `artifacts` and `result_keys`
 - Every artifact value must be wrapped in `artifact(...)`
 
@@ -226,7 +226,7 @@ Parent wiring:
 ```python
 subworkflow(
     id = "spec_refinement",
-    workflow = "spec_refinement.star",
+    workflow = "../spec_refinement/spec_refinement.star",
     inputs = {
         "feature_dir": feature_dir,
         "spec_path": spec_path,
@@ -257,11 +257,11 @@ The index lives at `.daiag/workflows/WORKFLOWS.md` alongside the workflow subdir
 Each entry must follow this format exactly:
 
 ```markdown
-## <workflow_name>
+## <workflow_id>
 
 <one-sentence description of what the workflow does>
 
-File: `<path to .star file>`
+File: `.daiag/workflows/<workflow_id>/<workflow_id>.star`
 
 Inputs:
 - `<input>` — <description>
@@ -298,7 +298,7 @@ Before finishing, verify all of the following:
 - every task helper is defined inline in the `.star` file
 - every task helper accepts `step_id` as its first argument
 - the task ID is `step_id` directly — no concatenation inside the helper
-- prompt file named `<workflow_name>_<task_name>.md` (or `<workflow_name>.md` for single-task)
+- prompt file named `<workflow_id>_<task_name>.md` (or `<workflow_id>.md` for single-task)
 - prompt files are siblings of the `.star` file
 - every `${NAME}` in each `.md` file appears in `vars`
 - every JSON key promised in each `.md` file appears in `result_keys`
