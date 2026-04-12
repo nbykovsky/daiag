@@ -29,7 +29,7 @@ daiag run --workflow <workflow-id> --workdir <path> [--workflows-lib <dir>] [--i
 #### `--workflow <workflow-id>` (required)
 
 The workflow ID to run. Must match `[A-Za-z0-9_-]+`. Resolves to
-`<workflows-lib>/<id>/<id>.star` at load time.
+`<workflows-lib>/<id>/workflow.star` at load time.
 
 Path-style values such as `./wf.star`, `../wf.star`, or `/abs/wf.star` are
 rejected.

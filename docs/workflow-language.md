@@ -35,7 +35,7 @@ wf = workflow(
 The workflow ID passed to the CLI resolves to the entry workflow file:
 
 ```text
-<workflows-lib>/<workflow-id>/<workflow-id>.star
+<workflows-lib>/<workflow-id>/workflow.star
 ```
 
 Example:
@@ -60,7 +60,7 @@ Rules:
 Workflow libraries are directories containing workflow subdirectories:
 
 ```text
-<workflow-id>/<workflow-id>.star
+<workflow-id>/workflow.star
 ```
 
 The CLI accepts `--workflows-lib <dir>` to choose a library. If omitted, the
@@ -276,7 +276,7 @@ Rules:
 
 - `id` must be non-empty
 - `workflow` must be a workflow ID matching `[A-Za-z0-9_-]+`
-- `workflow` IDs resolve to `<workflows-lib>/<id>/<id>.star`
+- `workflow` IDs resolve to `<workflows-lib>/<id>/workflow.star`
 - path-style values such as `child.star`, `../child/child.star`, or `/tmp/child.star` are invalid
 - `inputs` defaults to `{}`
 - every child workflow input must be bound by the parent

@@ -19,7 +19,7 @@ func ResolveWorkflowID(workflowsLib string, id string) (string, error) {
 		return "", fmt.Errorf("resolve workflows library: %w", err)
 	}
 
-	path := filepath.Join(absLib, id, id+".star")
+	path := filepath.Join(absLib, id, "workflow.star")
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {

@@ -216,18 +216,40 @@ func TestLoaderLoadsNewPoemExampleWorkflow(t *testing.T) {
 	}
 }
 
-func TestLoaderLoadsDevelopmentWorkflowExample(t *testing.T) {
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd(): %v", err)
-	}
-	repoRoot := filepath.Clean(filepath.Join(wd, "..", ".."))
-	workflowsLib := filepath.Join(repoRoot, "examples", "development-workflow", "workflows")
-	workflowPath := filepath.Join(workflowsLib, "feature-development", "feature-development.star")
+func TestLoaderLoadsWorkflowWithSubworkflow(t *testing.T) {
+	baseDir := t.TempDir()
+	childPath := workflowIDPath(baseDir, "spec-refinement")
+	writeFile(t, childPath, `
+feature_dir = input("feature_dir")
+
+wf = workflow(
+    id = "spec-refinement",
+    inputs = ["feature_dir"],
+    steps = [],
+    output_artifacts = {"spec": feature_dir},
+    output_results = {},
+)
+`)
+	workflowPath := filepath.Join(baseDir, "feature-development", "workflow.star")
+	writeFile(t, workflowPath, `
+name = input("name")
+
+wf = workflow(
+    id = "feature-development",
+    inputs = ["name"],
+    steps = [
+        subworkflow(
+            id = "spec_refinement",
+            workflow = "spec-refinement",
+            inputs = {"feature_dir": name},
+        ),
+    ],
+)
+`)
 
 	loader := Loader{
 		Inputs:  map[string]string{"name": "indicators"},
-		BaseDir: workflowsLib,
+		BaseDir: baseDir,
 	}
 
 	wf, err := loader.Load(workflowPath)
@@ -1478,7 +1500,7 @@ func writeFile(t *testing.T, path string, contents string) {
 }
 
 func workflowIDPath(baseDir string, id string) string {
-	return filepath.Join(baseDir, id, id+".star")
+	return filepath.Join(baseDir, id, "workflow.star")
 }
 
 func contains(s, want string) bool {

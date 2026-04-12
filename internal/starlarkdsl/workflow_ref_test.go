@@ -9,7 +9,7 @@ import (
 
 func TestResolveWorkflowID(t *testing.T) {
 	workflowsLib := t.TempDir()
-	workflowPath := filepath.Join(workflowsLib, "write_poem", "write_poem.star")
+	workflowPath := filepath.Join(workflowsLib, "write_poem", "workflow.star")
 	writeWorkflowRefTestFile(t, workflowPath, "")
 
 	got, err := ResolveWorkflowID(workflowsLib, "write_poem")
@@ -30,7 +30,7 @@ func TestResolveWorkflowIDRejectsPath(t *testing.T) {
 
 func TestResolveWorkflowIDReportsMissingFile(t *testing.T) {
 	workflowsLib := t.TempDir()
-	wantPath := filepath.Join(workflowsLib, "write_poem", "write_poem.star")
+	wantPath := filepath.Join(workflowsLib, "write_poem", "workflow.star")
 
 	_, err := ResolveWorkflowID(workflowsLib, "write_poem")
 	if err == nil || !strings.Contains(err.Error(), wantPath) {

@@ -332,7 +332,7 @@ func TestDefaultRunnerValidateRejectsUnknownWorkflow(t *testing.T) {
 
 func writeValidateTestWorkflow(t *testing.T, workflowsLib string) {
 	t.Helper()
-	writeCLITestFile(t, filepath.Join(workflowsLib, "simple", "simple.star"), `
+	writeCLITestFile(t, filepath.Join(workflowsLib, "simple", "workflow.star"), `
 wf = workflow(id = "simple", steps = [])
 `)
 }
@@ -341,7 +341,7 @@ func writeCLITestWorkflow(t *testing.T, workflowsLib string) string {
 	t.Helper()
 
 	parentDir := filepath.Join(workflowsLib, "parent")
-	parentPath := filepath.Join(parentDir, "parent.star")
+	parentPath := filepath.Join(parentDir, "workflow.star")
 	writeCLITestFile(t, parentPath, `
 name = input("name")
 spec_path = format("docs/{name}/spec.md", name = name)
@@ -361,7 +361,7 @@ wf = workflow(
     ],
 )
 `)
-	writeCLITestFile(t, filepath.Join(workflowsLib, "child", "child.star"), `
+	writeCLITestFile(t, filepath.Join(workflowsLib, "child", "workflow.star"), `
 name = input("name")
 spec_path = input("spec_path")
 

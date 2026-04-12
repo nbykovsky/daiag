@@ -12,7 +12,7 @@ All files for a workflow live together in `.daiag/workflows/<workflow_id>/`.
 
 ## Required Clarifications
 
-Before writing any file, ask the user for these if not already stated:
+Before writing any file, ask only for information that cannot be inferred safely.
 
 1. **Steps in order** — what does each step do, what does it read, what does it write?
 2. **Loops** — are any steps iterative? If yes:
@@ -21,9 +21,15 @@ Before writing any file, ask the user for these if not already stated:
    - what is the exit value for that key?
    - what is the maximum number of iterations?
 3. **Inputs** — which runtime input values should the workflow accept?
-4. **Outputs** — which relative artifact paths and result values should the workflow expose to callers?
+4. **Outputs** — which result values should the workflow expose to callers?
 
-Do not guess about any of these. Ask one focused question if the answer is unclear.
+Infer obvious answers from the user's request:
+- If the user asks for a single task, assume no loop.
+- If the user mentions "given <value>", treat `<value>` as a runtime input.
+- If the user asks to create, write, or save an artifact but does not specify a path, use `<workflow_id>/<artifact_name>.<ext>`.
+- If the output result keys are obvious, use them without asking; for example, a poem artifact should return `poem_path`.
+
+Ask one focused question only when a required behavior, input, artifact format, or result contract is genuinely ambiguous.
 Do not ask the user for a workflow ID; generate it from the workflow purpose.
 Use relative artifact paths by default.
 
@@ -203,6 +209,7 @@ Do not wrap the JSON in Markdown fences.
 
 - Prefer simple relative artifact path names. The runtime resolves relative artifact paths against `--workdir`.
 - Namespace artifact paths under the workflow ID by default to avoid collisions across composed workflows.
+- If the user does not specify an artifact path, use `<workflow_id>/<artifact_name>.<ext>`.
 - When a workflow has artifact outputs, assign `workflow_id = "<id>"` near the top and use it in path formats.
 - Use paths such as `my_workflow/draft.md`, `my_workflow/review.md`, or `feature_writer/spec.md`.
 - Use `format(...)` directly in the workflow entry file when a path needs workflow inputs or loop iteration values.
