@@ -63,6 +63,10 @@ func (l *Logger) LoopCheck(id, result string) {
 	l.printf("loop check id=%s result=%s", id, result)
 }
 
+func (l *Logger) WhenCheck(id, result string) {
+	l.printf("when check id=%s result=%s", id, result)
+}
+
 func (l *Logger) WorkflowDone(id string) {
 	l.printf("workflow done id=%s status=success", id)
 }

@@ -97,6 +97,10 @@ func (e Engine) runNodes(ctx context.Context, input RunInput, st *state, nodes [
 			if err := e.runRepeatUntil(ctx, input, st, n); err != nil {
 				return err
 			}
+		case *workflow.When:
+			if err := e.runWhen(ctx, input, st, n); err != nil {
+				return err
+			}
 		case *workflow.Subworkflow:
 			if err := e.runSubworkflow(ctx, input, st, n); err != nil {
 				return err
@@ -280,6 +284,32 @@ func (e Engine) runRepeatUntil(ctx context.Context, input RunInput, st *state, l
 		StepID: loop.ID,
 		Err:    fmt.Errorf("loop reached max_iters=%d without satisfying condition", loop.MaxIters),
 	}
+}
+
+func (e Engine) runWhen(ctx context.Context, input RunInput, st *state, node *workflow.When) error {
+	ok, err := evalPredicate(node.Condition, st)
+	if err != nil {
+		return stepError{StepID: node.ID, Err: err}
+	}
+
+	if ok {
+		if e.Logger != nil {
+			e.Logger.WhenCheck(node.ID, "steps")
+		}
+		return e.runNodes(ctx, input, st, node.Steps)
+	}
+
+	if len(node.ElseSteps) == 0 {
+		if e.Logger != nil {
+			e.Logger.WhenCheck(node.ID, "skip")
+		}
+		return nil
+	}
+
+	if e.Logger != nil {
+		e.Logger.WhenCheck(node.ID, "else_steps")
+	}
+	return e.runNodes(ctx, input, st, node.ElseSteps)
 }
 
 func resolveExecutor(wf *workflow.Workflow, task *workflow.Task) (*workflow.ExecutorConfig, error) {

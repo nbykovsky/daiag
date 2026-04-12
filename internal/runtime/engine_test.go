@@ -283,6 +283,309 @@ func TestEngineResolvesWorkdirExpressionAndStoresAbsoluteArtifactPaths(t *testin
 	}
 }
 
+func TestEngineRunsWhenStepsWhenConditionTrue(t *testing.T) {
+	baseDir := t.TempDir()
+	calls := []string{}
+	engine := Engine{
+		Executors: map[string]Executor{
+			"codex": fakeExecutorFunc(func(_ context.Context, req TaskRequest) (TaskResponse, error) {
+				calls = append(calls, req.TaskID)
+				switch req.TaskID {
+				case "triage":
+					writeFile(t, filepath.Join(baseDir, "docs", "triage.md"), "triage\n")
+					return TaskResponse{Stdout: `{"outcome":"code_issues"}`, ExitCode: 0}, nil
+				case "repair_code":
+					writeFile(t, filepath.Join(baseDir, "docs", "repair.md"), "repair\n")
+					return TaskResponse{Stdout: `{"outcome":"repaired"}`, ExitCode: 0}, nil
+				default:
+					return TaskResponse{}, fmt.Errorf("unexpected task %q", req.TaskID)
+				}
+			}),
+		},
+	}
+	wf := &workflow.Workflow{
+		ID:              "conditional",
+		DefaultExecutor: &workflow.ExecutorConfig{CLI: "codex", Model: "gpt-5.4"},
+		Steps: []workflow.Node{
+			&workflow.Task{
+				ID:         "triage",
+				Prompt:     workflow.Prompt{Inline: "triage"},
+				Artifacts:  map[string]workflow.StringExpr{"status": workflow.Literal{Value: "docs/triage.md"}},
+				ResultKeys: []string{"outcome"},
+			},
+			&workflow.When{
+				ID: "address_code_issues",
+				Condition: workflow.EqPredicate{
+					Left:  workflow.JSONRef{StepID: "triage", Field: "outcome"},
+					Right: workflow.Literal{Value: "code_issues"},
+				},
+				Steps: []workflow.Node{
+					&workflow.Task{
+						ID:         "repair_code",
+						Prompt:     workflow.Prompt{Inline: "repair"},
+						Artifacts:  map[string]workflow.StringExpr{"status": workflow.Literal{Value: "docs/repair.md"}},
+						ResultKeys: []string{"outcome"},
+					},
+				},
+				ElseSteps: []workflow.Node{
+					&workflow.Task{
+						ID:         "record_no_repair_needed",
+						Prompt:     workflow.Prompt{Inline: "record"},
+						Artifacts:  map[string]workflow.StringExpr{"status": workflow.Literal{Value: "docs/no-repair.md"}},
+						ResultKeys: []string{"outcome"},
+					},
+				},
+			},
+		},
+	}
+
+	if err := engine.Run(context.Background(), RunInput{Workflow: wf, BaseDir: baseDir, Workdir: baseDir}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := strings.Join(calls, ","), "triage,repair_code"; got != want {
+		t.Fatalf("calls = %s, want %s", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(baseDir, "docs", "repair.md")); err != nil {
+		t.Fatalf("expected repair artifact: %v", err)
+	}
+}
+
+func TestEngineRunsWhenElseStepsWhenConditionFalse(t *testing.T) {
+	baseDir := t.TempDir()
+	calls := []string{}
+	engine := Engine{
+		Executors: map[string]Executor{
+			"codex": fakeExecutorFunc(func(_ context.Context, req TaskRequest) (TaskResponse, error) {
+				calls = append(calls, req.TaskID)
+				switch req.TaskID {
+				case "triage":
+					writeFile(t, filepath.Join(baseDir, "docs", "triage.md"), "triage\n")
+					return TaskResponse{Stdout: `{"outcome":"clean"}`, ExitCode: 0}, nil
+				case "record_no_repair_needed":
+					writeFile(t, filepath.Join(baseDir, "docs", "no-repair.md"), "clean\n")
+					return TaskResponse{Stdout: `{"outcome":"clean"}`, ExitCode: 0}, nil
+				default:
+					return TaskResponse{}, fmt.Errorf("unexpected task %q", req.TaskID)
+				}
+			}),
+		},
+	}
+	wf := &workflow.Workflow{
+		ID:              "conditional",
+		DefaultExecutor: &workflow.ExecutorConfig{CLI: "codex", Model: "gpt-5.4"},
+		Steps: []workflow.Node{
+			&workflow.Task{
+				ID:         "triage",
+				Prompt:     workflow.Prompt{Inline: "triage"},
+				Artifacts:  map[string]workflow.StringExpr{"status": workflow.Literal{Value: "docs/triage.md"}},
+				ResultKeys: []string{"outcome"},
+			},
+			&workflow.When{
+				ID: "address_code_issues",
+				Condition: workflow.EqPredicate{
+					Left:  workflow.JSONRef{StepID: "triage", Field: "outcome"},
+					Right: workflow.Literal{Value: "code_issues"},
+				},
+				Steps: []workflow.Node{
+					&workflow.Task{
+						ID:         "repair_code",
+						Prompt:     workflow.Prompt{Inline: "repair"},
+						Artifacts:  map[string]workflow.StringExpr{"status": workflow.Literal{Value: "docs/repair.md"}},
+						ResultKeys: []string{"outcome"},
+					},
+				},
+				ElseSteps: []workflow.Node{
+					&workflow.Task{
+						ID:         "record_no_repair_needed",
+						Prompt:     workflow.Prompt{Inline: "record"},
+						Artifacts:  map[string]workflow.StringExpr{"status": workflow.Literal{Value: "docs/no-repair.md"}},
+						ResultKeys: []string{"outcome"},
+					},
+				},
+			},
+		},
+	}
+
+	if err := engine.Run(context.Background(), RunInput{Workflow: wf, BaseDir: baseDir, Workdir: baseDir}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := strings.Join(calls, ","), "triage,record_no_repair_needed"; got != want {
+		t.Fatalf("calls = %s, want %s", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(baseDir, "docs", "no-repair.md")); err != nil {
+		t.Fatalf("expected else artifact: %v", err)
+	}
+}
+
+func TestEngineSkipsWhenWithoutElseStepsWhenConditionFalse(t *testing.T) {
+	baseDir := t.TempDir()
+	calls := []string{}
+	engine := Engine{
+		Executors: map[string]Executor{
+			"codex": fakeExecutorFunc(func(_ context.Context, req TaskRequest) (TaskResponse, error) {
+				calls = append(calls, req.TaskID)
+				switch req.TaskID {
+				case "triage":
+					writeFile(t, filepath.Join(baseDir, "docs", "triage.md"), "triage\n")
+					return TaskResponse{Stdout: `{"outcome":"clean"}`, ExitCode: 0}, nil
+				case "after":
+					writeFile(t, filepath.Join(baseDir, "docs", "after.md"), "after\n")
+					return TaskResponse{Stdout: `{"ok":true}`, ExitCode: 0}, nil
+				default:
+					return TaskResponse{}, fmt.Errorf("unexpected task %q", req.TaskID)
+				}
+			}),
+		},
+	}
+	wf := &workflow.Workflow{
+		ID:              "conditional",
+		DefaultExecutor: &workflow.ExecutorConfig{CLI: "codex", Model: "gpt-5.4"},
+		Steps: []workflow.Node{
+			&workflow.Task{
+				ID:         "triage",
+				Prompt:     workflow.Prompt{Inline: "triage"},
+				Artifacts:  map[string]workflow.StringExpr{"status": workflow.Literal{Value: "docs/triage.md"}},
+				ResultKeys: []string{"outcome"},
+			},
+			&workflow.When{
+				ID: "address_code_issues",
+				Condition: workflow.EqPredicate{
+					Left:  workflow.JSONRef{StepID: "triage", Field: "outcome"},
+					Right: workflow.Literal{Value: "code_issues"},
+				},
+				Steps: []workflow.Node{
+					&workflow.Task{
+						ID:         "repair_code",
+						Prompt:     workflow.Prompt{Inline: "repair"},
+						Artifacts:  map[string]workflow.StringExpr{"status": workflow.Literal{Value: "docs/repair.md"}},
+						ResultKeys: []string{"outcome"},
+					},
+				},
+			},
+			&workflow.Task{
+				ID:         "after",
+				Prompt:     workflow.Prompt{Inline: "after"},
+				Artifacts:  map[string]workflow.StringExpr{"status": workflow.Literal{Value: "docs/after.md"}},
+				ResultKeys: []string{"ok"},
+			},
+		},
+	}
+
+	if err := engine.Run(context.Background(), RunInput{Workflow: wf, BaseDir: baseDir, Workdir: baseDir}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := strings.Join(calls, ","), "triage,after"; got != want {
+		t.Fatalf("calls = %s, want %s", got, want)
+	}
+}
+
+func TestEngineEvaluatesWhenOnEachRepeatUntilIteration(t *testing.T) {
+	baseDir := t.TempDir()
+	calls := []string{}
+	checkRuns := 0
+	engine := Engine{
+		Executors: map[string]Executor{
+			"codex": fakeExecutorFunc(func(_ context.Context, req TaskRequest) (TaskResponse, error) {
+				calls = append(calls, req.TaskID)
+				switch req.TaskID {
+				case "check":
+					checkRuns++
+					outcome := "code_issues"
+					if checkRuns == 2 {
+						outcome = "ready"
+					}
+					writeFile(t, filepath.Join(baseDir, "docs", "check.md"), outcome+"\n")
+					return TaskResponse{Stdout: fmt.Sprintf(`{"outcome":"%s"}`, outcome), ExitCode: 0}, nil
+				case "repair_code":
+					writeFile(t, filepath.Join(baseDir, "docs", "repair.md"), "repair\n")
+					return TaskResponse{Stdout: `{"outcome":"repaired"}`, ExitCode: 0}, nil
+				case "record_clean":
+					writeFile(t, filepath.Join(baseDir, "docs", "clean.md"), "clean\n")
+					return TaskResponse{Stdout: `{"outcome":"clean"}`, ExitCode: 0}, nil
+				default:
+					return TaskResponse{}, fmt.Errorf("unexpected task %q", req.TaskID)
+				}
+			}),
+		},
+	}
+	wf := &workflow.Workflow{
+		ID:              "conditional-loop",
+		DefaultExecutor: &workflow.ExecutorConfig{CLI: "codex", Model: "gpt-5.4"},
+		Steps: []workflow.Node{
+			&workflow.RepeatUntil{
+				ID:       "review_loop",
+				MaxIters: 3,
+				Steps: []workflow.Node{
+					&workflow.Task{
+						ID:         "check",
+						Prompt:     workflow.Prompt{Inline: "check"},
+						Artifacts:  map[string]workflow.StringExpr{"status": workflow.Literal{Value: "docs/check.md"}},
+						ResultKeys: []string{"outcome"},
+					},
+					&workflow.When{
+						ID: "repair_if_needed",
+						Condition: workflow.EqPredicate{
+							Left:  workflow.JSONRef{StepID: "check", Field: "outcome"},
+							Right: workflow.Literal{Value: "code_issues"},
+						},
+						Steps: []workflow.Node{
+							&workflow.Task{
+								ID:         "repair_code",
+								Prompt:     workflow.Prompt{Inline: "repair"},
+								Artifacts:  map[string]workflow.StringExpr{"status": workflow.Literal{Value: "docs/repair.md"}},
+								ResultKeys: []string{"outcome"},
+							},
+						},
+						ElseSteps: []workflow.Node{
+							&workflow.Task{
+								ID:         "record_clean",
+								Prompt:     workflow.Prompt{Inline: "record"},
+								Artifacts:  map[string]workflow.StringExpr{"status": workflow.Literal{Value: "docs/clean.md"}},
+								ResultKeys: []string{"outcome"},
+							},
+						},
+					},
+				},
+				Until: workflow.EqPredicate{
+					Left:  workflow.JSONRef{StepID: "check", Field: "outcome"},
+					Right: workflow.Literal{Value: "ready"},
+				},
+			},
+		},
+	}
+
+	if err := engine.Run(context.Background(), RunInput{Workflow: wf, BaseDir: baseDir, Workdir: baseDir}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if got, want := strings.Join(calls, ","), "check,repair_code,check,record_clean"; got != want {
+		t.Fatalf("calls = %s, want %s", got, want)
+	}
+}
+
+func TestEngineAttributesWhenConditionEvaluationFailureToWhenID(t *testing.T) {
+	wf := &workflow.Workflow{
+		ID: "bad-conditional",
+		Steps: []workflow.Node{
+			&workflow.When{
+				ID: "gate",
+				Condition: workflow.EqPredicate{
+					Left:  workflow.JSONRef{StepID: "missing", Field: "outcome"},
+					Right: workflow.Literal{Value: "ready"},
+				},
+			},
+		},
+	}
+
+	err := (Engine{}).Run(context.Background(), RunInput{Workflow: wf})
+	if err == nil || !strings.Contains(err.Error(), `step gate: missing result for step "missing"`) {
+		t.Fatalf("Run() error = %v, want when step error", err)
+	}
+	stepID, ok := errStepID(err)
+	if !ok || stepID != "gate" {
+		t.Fatalf("errStepID() = %q, %v; want gate, true", stepID, ok)
+	}
+}
+
 func TestEngineRunsSubworkflowAndExposesOutputs(t *testing.T) {
 	baseDir := t.TempDir()
 	writeFile(t, filepath.Join(baseDir, "agents", "child.md"), `literal=${LITERAL} source=${SOURCE_PATH} status=${STATUS}`)

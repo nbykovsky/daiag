@@ -104,6 +104,7 @@ The workflow DSL provides these builtins:
 - `workflow(...)`
 - `task(...)`
 - `repeat_until(...)`
+- `when(...)`
 - `subworkflow(...)`
 - `artifact(path)`
 - `path_ref(step_id, artifact_key)`
@@ -150,7 +151,7 @@ Rules:
 
 - `id` must be non-empty
 - `inputs` must be a list of unique non-empty strings when provided
-- `steps` must be a list of `task(...)`, `repeat_until(...)`, and `subworkflow(...)` values
+- `steps` must be a list of `task(...)`, `repeat_until(...)`, `when(...)`, and `subworkflow(...)` values
 - `output_artifacts` maps public artifact names to string expressions
 - `output_results` maps public result names to value expressions
 - output expressions may reference declared `input(...)` values and steps visible by the end of the workflow
@@ -235,7 +236,7 @@ Rules:
 
 - `id` must be non-empty
 - `max_iters` must be at least `1`
-- `steps` must be a list of `task(...)`, `repeat_until(...)`, and `subworkflow(...)`
+- `steps` must be a list of `task(...)`, `repeat_until(...)`, `when(...)`, and `subworkflow(...)`
 - `until` must be a supported predicate
 
 Semantics:
@@ -244,6 +245,58 @@ Semantics:
 - after the body finishes, the predicate is evaluated
 - if the predicate is true, the loop stops
 - if the predicate never becomes true, execution fails after `max_iters`
+
+## `when(...)`
+
+Runs one branch of workflow steps based on a runtime predicate.
+
+Required fields:
+
+- `id`
+- `condition`
+- `steps`
+
+Optional fields:
+
+- `else_steps`
+
+Example:
+
+```python
+when(
+    id = "address_code_issues",
+    condition = eq(json_ref("qa_triage", "outcome"), "code_issues"),
+    steps = [
+        task(
+            id = "repair_code",
+            prompt = "repair",
+            artifacts = {"status": artifact("docs/repair_status.md")},
+            result_keys = ["outcome"],
+        ),
+    ],
+    else_steps = [],
+)
+```
+
+Rules:
+
+- `id` must be non-empty
+- `condition` must be a supported predicate
+- `steps` and `else_steps` must be lists of `task(...)`, `repeat_until(...)`, `when(...)`, and `subworkflow(...)`
+- the `when(...)` node has no artifacts or results of its own
+- `path_ref(...)` and `json_ref(...)` to the `when(...)` ID are invalid
+- `condition` may reference only steps visible before the `when(...)` node
+- branch steps may reference steps visible before the `when(...)` node and earlier steps in the same branch
+- `steps` and `else_steps` may not cross-reference each other
+- later parent steps and workflow outputs may not reference branch-internal step artifacts or results
+
+Semantics:
+
+- `condition` is evaluated once before branch execution
+- when the predicate is true, `steps` run in order
+- when the predicate is false and `else_steps` is present, `else_steps` run in order
+- when the predicate is false and `else_steps` is empty or omitted, execution continues with no branch steps
+- inside `repeat_until(...)`, `when(...)` is evaluated on every loop iteration
 
 ## `subworkflow(...)`
 
@@ -319,10 +372,11 @@ path_ref("write_poem", "poem")
 
 Rules:
 
-- `step_id` must refer to an earlier task or subworkflow step
+- `step_id` must refer to an earlier visible task or subworkflow step
 - a task reference must name a declared artifact key
 - a subworkflow reference must name a key from the child workflow's `output_artifacts`
 - forward references are not allowed
+- conditional branch-internal steps are visible only inside their own branch
 
 ## `json_ref(step_id, field)`
 
@@ -336,10 +390,11 @@ json_ref("review_poem", "outcome")
 
 Rules:
 
-- `step_id` must refer to an earlier task or subworkflow step
+- `step_id` must refer to an earlier visible task or subworkflow step
 - a task reference must name a key from `result_keys`
 - a subworkflow reference must name a key from the child workflow's `output_results`
 - forward references are not allowed
+- conditional branch-internal steps are visible only inside their own branch
 
 ## `loop_iter(loop_id)`
 
@@ -525,7 +580,7 @@ Rules:
 
 ## `eq(left, right)`
 
-Builds a predicate used by `repeat_until(...)`.
+Builds a predicate used by `repeat_until(...)` and `when(...)`.
 
 Example:
 
@@ -616,6 +671,7 @@ Loaded modules may export:
 - helper functions
 - prebuilt `task(...)` values
 - prebuilt `repeat_until(...)` values
+- prebuilt `when(...)` values
 - prebuilt `subworkflow(...)` values
 
 Recommendation:
@@ -628,13 +684,15 @@ Reason:
 
 ## Step ID Rules
 
-Step IDs are unique inside one workflow scope, including nested loops.
+Step IDs are unique inside one workflow scope, including nested loops and conditional branches.
 
 This means:
 
 - two tasks may not share the same `id`
 - a loop may not reuse a task ID from elsewhere in the workflow
-- a subworkflow ID may not reuse a task or loop ID in the same parent workflow
+- a conditional may not reuse a task, loop, subworkflow, or branch step ID in the same workflow
+- a subworkflow ID may not reuse a task, loop, or conditional ID in the same parent workflow
+- branch step IDs may not duplicate each other or any parent step ID in the same workflow
 - parent and child workflows may use the same internal task IDs
 
 ## Artifact Path Rules
@@ -748,6 +806,15 @@ Workflow loading and validation reject the following cases.
 - `repeat_until(max_iters < 1)`
 - unsupported predicate type
 
+### Conditional Errors
+
+- `when(...)` missing or unsupported condition
+- `when(...)` condition references an unknown or branch-internal step
+- `when(...)` branch uses an unsupported node type
+- branch step references the other branch
+- later parent step references a branch-internal step
+- workflow output references a branch-internal step
+
 ## Validation Commands
 
 ## Current CLI Surface
@@ -857,6 +924,7 @@ wf = workflow(
 - use `projectdir()` for explicit project source paths
 - use `path_ref(...)` for file handoff between tasks
 - use `json_ref(...)` only for control flow and metadata
+- use `when(...)` for runtime branches that do not need to publish branch outputs
 - use `loop_iter(...)` only when you need per-iteration file names
 - prefer helper functions over copying large task blocks
 - use subworkflows when a stage needs its own input/output contract and internal step ID scope
