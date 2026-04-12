@@ -119,7 +119,6 @@ no-op task pattern until branch outputs are designed.
 
 Add validation errors for:
 
-- empty `when(...)` ID
 - duplicate `when(...)` ID or duplicate nested step ID
 - missing or unsupported `condition`
 - `condition` referencing an unknown or branch-internal step
@@ -129,8 +128,13 @@ Add validation errors for:
 - later parent steps referencing branch-internal artifacts or results
 - workflow outputs referencing branch-internal artifacts or results
 
+Empty `when(...)` IDs require no special validation code. The existing generic
+node ID check in `validateSteps` should catch them as `step ID is empty`.
+
 `loop_iter(...)` should be valid in a `when(...)` condition only when the
-conditional node is structurally inside the referenced loop.
+conditional node is structurally inside the referenced loop. This should require
+no special case because `validatePredicate` already calls `validateValueExpr`,
+and the existing `activeLoops` map flows from the enclosing validation context.
 
 ## Implementation Plan
 
@@ -163,6 +167,8 @@ Update `internal/starlarkdsl`:
 - update error text from `task, repeat_until, or subworkflow` to include
   `when`
 - update `loadSubworkflowsInNode` to recurse through `When.Steps`
+- update predicate unpacking so `when(condition = "bad", ...)` reports
+  `condition must be a predicate` instead of `until must be a predicate`
 
 The builtin should unpack:
 
@@ -172,7 +178,21 @@ The builtin should unpack:
 "steps", &stepsValue,
 ```
 
-and use the existing `unpackPredicate` and `unpackSteps` helpers.
+Prefer changing `unpackPredicate` to accept a field name:
+
+```go
+func unpackPredicate(value starlark.Value, field string) (workflow.Predicate, error) {
+    predicate, ok := value.(*predicateValue)
+    if !ok {
+        return nil, fmt.Errorf("%s must be a predicate", field)
+    }
+    return predicate.predicate, nil
+}
+```
+
+Then call `unpackPredicate(untilValue, "until")` from
+`builtinRepeatUntil` and `unpackPredicate(conditionValue, "condition")` from
+`builtinWhen`.
 
 ### 3. Workflow validation
 
@@ -186,6 +206,8 @@ case *When:
     if _, err := v.validateSteps(n.Steps, current, allIDs, defaultExecutor, activeLoops, declaredInputs, templateBaseDir); err != nil {
         return nil, err
     }
+    // Do not merge the returned branch scope into current.
+    // Branch outputs are intentionally invisible after the conditional.
 ```
 
 Do not assign the returned branch scope back to `current`.
@@ -218,6 +240,11 @@ func (e Engine) runWhen(ctx context.Context, input RunInput, st *state, node *wo
 
 Nested step failures should keep their own step IDs, matching
 `repeat_until(...)` body behavior.
+
+Branch steps that run will still write their artifacts and results into the
+shared runtime state. That is acceptable in v1 because validation prevents
+later parent steps from referencing branch-internal IDs. The implementation does
+not need runtime cleanup for skipped branches.
 
 ### 5. Logging
 
