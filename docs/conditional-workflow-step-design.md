@@ -2,8 +2,8 @@
 
 ## Goal
 
-Add runtime conditional execution to the workflow DSL so a workflow can run a
-step group only when a predicate over earlier workflow data is true.
+Add runtime conditional execution to the workflow DSL so a workflow can choose
+between step groups from a predicate over earlier workflow data.
 
 This covers cases already called out by the development workflow example:
 
@@ -35,12 +35,24 @@ when(
             result_keys = ["outcome"],
         ),
     ],
+    else_steps = [
+        task(
+            id = "record_no_repair_needed",
+            prompt = "Write docs/features/indicators/repair_status.md saying no code repair was needed. Return JSON with outcome.",
+            artifacts = {
+                "status": artifact("docs/features/indicators/repair_status.md"),
+            },
+            result_keys = ["outcome"],
+        ),
+    ],
 )
 ```
 
 `if` should not be used as the builtin name:
 
 - `if` is a Starlark keyword, so it is not available as a normal DSL builtin.
+- `else` is also a Starlark keyword, so the optional false branch should be
+  named `else_steps`, not `else`.
 - Starlark `if` executes at workflow load time, before runtime task results
   exist.
 - The feature wraps one or more workflow steps; it is not an executor task by
@@ -50,26 +62,27 @@ when(
 
 The first implementation should be intentionally narrow:
 
-- add `when(id, condition, steps)`
+- add `when(id, condition, steps, else_steps = [])`
 - support the existing predicate type, currently `eq(...)`
 - support `task(...)`, `repeat_until(...)`, `subworkflow(...)`, and nested
-  `when(...)` values inside `steps`
-- evaluate `condition` once before running `steps`
-- run the nested steps sequentially when the predicate is true
-- skip the nested steps and continue the parent workflow when the predicate is
-  false
+  `when(...)` values inside `steps` and `else_steps`
+- evaluate `condition` once before choosing a branch
+- run `steps` sequentially when the predicate is true
+- run `else_steps` sequentially when the predicate is false and `else_steps` is
+  provided
+- skip the conditional and continue the parent workflow when the predicate is
+  false and `else_steps` is omitted or empty
 - allow `when(...)` inside `repeat_until(...)` loops
 
 Do not add these in v1:
 
-- `else_steps`
 - branch output declarations
-- path or JSON references to skipped branch steps from later parent steps
+- path or JSON references to branch-internal steps from later parent steps
 - dynamic task fan-out
 - richer predicates such as `and`, `or`, `not`, or `ne`
 
 The no-output rule is the main simplifier. It prevents later steps from reading
-artifacts or results that may not exist because the branch was skipped.
+artifacts or results that may not exist because only one branch ran.
 
 ## Runtime Semantics
 
@@ -77,18 +90,20 @@ For each `when(...)` node:
 
 1. Resolve and evaluate `condition` against the current runtime state.
 2. If evaluation fails, fail the workflow with the `when(...)` node ID.
-3. If the predicate is false, skip the nested steps and continue.
-4. If the predicate is true, run the nested steps in order using the same
-   runtime state as the parent workflow.
-5. If a nested step fails, return that nested step error directly.
+3. If the predicate is true, run `steps` in order using the same runtime state
+   as the parent workflow.
+4. If the predicate is false, run `else_steps` in order using the same runtime
+   state as the parent workflow.
+5. If the predicate is false and `else_steps` is empty, continue without
+   running branch steps.
+6. If a nested branch step fails, return that nested step error directly.
 
 Nested steps use the same artifact, result, loop, input, workdir, executor, and
 subworkflow behavior they use elsewhere.
 
 Inside a `repeat_until(...)` loop, `when(...)` is evaluated on every loop
-iteration. If it is skipped on a later iteration, branch outputs from an earlier
-iteration must not become visible to later parent steps. V1 avoids stale data by
-making branch-internal step IDs invisible outside the branch.
+iteration. A different branch may run on a later iteration. V1 avoids stale data
+by making branch-internal step IDs invisible outside the branch.
 
 ## Reference Visibility
 
@@ -101,8 +116,12 @@ keeps logs unambiguous.
 Reference visibility is narrower:
 
 - `condition` may reference only steps visible before the `when(...)` node.
-- steps inside the branch may reference steps visible before the `when(...)`
-  node and earlier steps inside the same branch.
+- steps inside `steps` may reference steps visible before the `when(...)` node
+  and earlier steps inside `steps`.
+- steps inside `else_steps` may reference steps visible before the `when(...)`
+  node and earlier steps inside `else_steps`.
+- `steps` and `else_steps` may not cross-reference each other because only one
+  branch runs.
 - steps after the `when(...)` node may not reference branch-internal step
   artifacts or results.
 - workflow `output_artifacts` and `output_results` may not reference
@@ -122,9 +141,9 @@ Add validation errors for:
 - duplicate `when(...)` ID or duplicate nested step ID
 - missing or unsupported `condition`
 - `condition` referencing an unknown or branch-internal step
-- unsupported node type in `steps`
+- unsupported node type in `steps` or `else_steps`
 - any existing task, loop, subworkflow, expression, or template validation error
-  inside the branch
+  inside either branch
 - later parent steps referencing branch-internal artifacts or results
 - workflow outputs referencing branch-internal artifacts or results
 
@@ -147,6 +166,7 @@ type When struct {
     ID        string
     Condition Predicate
     Steps     []Node
+    ElseSteps []Node
 }
 
 func (*When) node() {}
@@ -164,9 +184,13 @@ Update `internal/starlarkdsl`:
 - add `builtinWhen`
 - add `whenValue`
 - update `unpackSteps` to accept `*whenValue`
+- update all `unpackSteps` call sites to pass the field name `steps`
 - update error text from `task, repeat_until, or subworkflow` to include
   `when`
-- update `loadSubworkflowsInNode` to recurse through `When.Steps`
+- update `loadSubworkflowsInNode` to recurse through `When.Steps` and
+  `When.ElseSteps`
+- update step unpacking to accept a field name so `else_steps = "bad"` reports
+  `else_steps must be a list`
 - update predicate unpacking so `when(condition = "bad", ...)` reports
   `condition must be a predicate` instead of `until must be a predicate`
 
@@ -176,6 +200,7 @@ The builtin should unpack:
 "id", &id,
 "condition", &conditionValue,
 "steps", &stepsValue,
+"else_steps?", &elseStepsValue,
 ```
 
 Change `unpackPredicate` to accept a field name:
@@ -194,6 +219,48 @@ Then call `unpackPredicate(untilValue, "until")` from
 `builtinRepeatUntil` and `unpackPredicate(conditionValue, "condition")` from
 `builtinWhen`.
 
+Change `unpackSteps` to accept a field name, then add an optional steps helper
+for `else_steps`:
+
+```go
+func unpackSteps(value starlark.Value, field string) ([]workflow.Node, error) {
+    list, ok := value.(*starlark.List)
+    if !ok {
+        return nil, fmt.Errorf("%s must be a list", field)
+    }
+
+    steps := make([]workflow.Node, 0, list.Len())
+    for i := 0; i < list.Len(); i++ {
+        item := list.Index(i)
+        switch value := item.(type) {
+        case *taskValue:
+            steps = append(steps, value.task)
+        case *repeatUntilValue:
+            steps = append(steps, value.loop)
+        case *subworkflowValue:
+            steps = append(steps, value.subworkflow)
+        case *whenValue:
+            steps = append(steps, value.when)
+        default:
+            return nil, fmt.Errorf("%s[%d] must be a task, repeat_until, subworkflow, or when, got %s", field, i, item.Type())
+        }
+    }
+    return steps, nil
+}
+```
+
+```go
+func unpackOptionalSteps(value starlark.Value, field string) ([]workflow.Node, error) {
+    if value == starlark.None {
+        return nil, nil
+    }
+    return unpackSteps(value, field)
+}
+```
+
+Use `unpackSteps(stepsValue, "steps")` for the required true branch and
+`unpackOptionalSteps(elseStepsValue, "else_steps")` for the false branch.
+
 ### 3. Workflow validation
 
 Update `internal/workflow/validate.go` in `validateSteps`:
@@ -206,6 +273,9 @@ case *When:
     if _, err := v.validateSteps(n.Steps, current, allIDs, defaultExecutor, activeLoops, declaredInputs, templateBaseDir); err != nil {
         return nil, err
     }
+    if _, err := v.validateSteps(n.ElseSteps, current, allIDs, defaultExecutor, activeLoops, declaredInputs, templateBaseDir); err != nil {
+        return nil, err
+    }
     // Intentionally no current update here: conditional branches do not publish
     // branch artifacts or results to later parent steps.
 ```
@@ -215,7 +285,7 @@ pre-branch scope. This intentionally differs from `repeat_until(...)`, which
 validates `until` after body validation and against the post-body scope because
 `until` runs after the loop body.
 
-Do not assign the returned branch scope back to `current`, and do not add a
+Do not assign either returned branch scope back to `current`, and do not add a
 `current[n.ID] = ...` entry for the `when(...)` node.
 
 That preserves internal validation and duplicate-ID checks while preventing
@@ -234,13 +304,22 @@ func (e Engine) runWhen(ctx context.Context, input RunInput, st *state, node *wo
     if err != nil {
         return stepError{StepID: node.ID, Err: err}
     }
-    if e.Logger != nil {
-        e.Logger.WhenCheck(node.ID, ok)
+    if ok {
+        if e.Logger != nil {
+            e.Logger.WhenCheck(node.ID, "steps")
+        }
+        return e.runNodes(ctx, input, st, node.Steps)
     }
-    if !ok {
+    if len(node.ElseSteps) == 0 {
+        if e.Logger != nil {
+            e.Logger.WhenCheck(node.ID, "skip")
+        }
         return nil
     }
-    return e.runNodes(ctx, input, st, node.Steps)
+    if e.Logger != nil {
+        e.Logger.WhenCheck(node.ID, "else_steps")
+    }
+    return e.runNodes(ctx, input, st, node.ElseSteps)
 }
 ```
 
@@ -250,23 +329,20 @@ Nested step failures should keep their own step IDs, matching
 Branch steps that run will still write their artifacts and results into the
 shared runtime state. That is acceptable in v1 because validation prevents
 later parent steps from referencing branch-internal IDs. The implementation does
-not need runtime cleanup for skipped branches.
+not need runtime cleanup when the other branch runs on a later loop iteration.
 
 ### 5. Logging
 
 Update `internal/logging/logger.go` with one concise line:
 
 ```go
-func (l *Logger) WhenCheck(id string, ok bool) {
-    result := "skip"
-    if ok {
-        result = "run"
-    }
+func (l *Logger) WhenCheck(id, result string) {
     l.printf("when check id=%s result=%s", id, result)
 }
 ```
 
-This mirrors `loop check id=<id> result=<stop|continue>`.
+This mirrors `loop check id=<id> result=<stop|continue>`. Valid `result`
+values are `steps`, `else_steps`, and `skip`.
 
 ### 6. Tests
 
@@ -277,15 +353,21 @@ Add focused tests:
   step after `when(...)`
 - `internal/starlarkdsl`: rejects a `when(...)` condition that references a
   branch-internal step
+- `internal/starlarkdsl`: rejects cross-references between `steps` and
+  `else_steps`
 - `internal/starlarkdsl`: loads a subworkflow nested inside `when(...)`
-- `internal/starlarkdsl`: rejects duplicate step IDs across parent and branch
+- `internal/starlarkdsl`: rejects duplicate step IDs across parent, `steps`,
+  and `else_steps`
 - `internal/runtime`: runs branch steps when the condition is true
-- `internal/runtime`: skips branch steps when the condition is false
+- `internal/runtime`: runs `else_steps` when the condition is false
+- `internal/runtime`: skips the conditional when the condition is false and
+  `else_steps` is empty
 - `internal/runtime`: evaluates `when(...)` on each `repeat_until(...)`
   iteration
 - `internal/runtime`: attributes condition evaluation failure to the
   `when(...)` ID
-- `internal/logging`: logs `when check id=<id> result=run` and `result=skip`
+- `internal/logging`: logs `when check id=<id> result=steps`,
+  `result=else_steps`, and `result=skip`
 
 Suggested package checks after implementation:
 
@@ -307,23 +389,9 @@ the branch does not need to publish artifacts or results to later parent steps.
 
 ## Future Work
 
-A later design can add a full branching node if concrete workflows need values
-from both sides of a conditional:
-
-```python
-branch(
-    id = "qa_repair",
-    condition = eq(json_ref("qa_triage", "outcome"), "code_issues"),
-    then_steps = [...],
-    else_steps = [...],
-    output_artifacts = {
-        "status": path_ref("repair_code", "status"),
-    },
-    output_results = {
-        "outcome": json_ref("repair_code", "outcome"),
-    },
-)
-```
-
-That feature needs a separate merge contract for branch outputs and should not
-be bundled into the first conditional execution change.
+A later design can add branch outputs if concrete workflows need values from a
+conditional after it completes. That should be a separate merge contract, either
+by extending `when(...)` with explicit output declarations or by adding a
+separate `branch(...)` node. It should define how outputs are resolved for both
+the true and false branches, and should not be bundled into the first
+conditional execution change.
