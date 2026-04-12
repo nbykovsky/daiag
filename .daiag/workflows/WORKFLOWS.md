@@ -34,3 +34,17 @@ Output Artifacts:
 - `status` — `file_row_grower/count_status.json`
 
 Output Results: `outcome`, `row_count`
+
+## workflow_composer
+
+Turns a high-level workflow description into a formal natural-language workflow blueprint, identifying reusable catalog workflows and documenting any missing capabilities.
+
+File: `.daiag/workflows/workflow_composer/workflow.star`
+
+Inputs:
+- `description` — high-level description of the workflow to design
+
+Output Artifacts:
+- `blueprint` — `workflow_composer/blueprint.md`
+
+Output Results: `outcome`, `blueprint_path`
