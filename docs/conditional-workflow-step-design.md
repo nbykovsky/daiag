@@ -84,6 +84,11 @@ Do not add these in v1:
 The no-output rule is the main simplifier. It prevents later steps from reading
 artifacts or results that may not exist because only one branch ran.
 
+Empty `steps` and `else_steps` lists are allowed. A true condition with
+`steps = []`, or a false condition with no `else_steps`, is a no-op and
+continues the parent workflow. This matches the current implicit allowance for
+empty `repeat_until(...)` bodies.
+
 ## Runtime Semantics
 
 For each `when(...)` node:
@@ -278,6 +283,7 @@ case *When:
     }
     // Intentionally no current update here: conditional branches do not publish
     // branch artifacts or results to later parent steps.
+    continue
 ```
 
 Validate the condition before the branch steps and against `current`, the
