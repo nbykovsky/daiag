@@ -445,3 +445,7 @@ artifact path that later stages can consume.
 - Should structured plans and review briefs have formal schemas to make
   handoffs easier to validate?
 - What maximum review iteration count should the assembler/reviewer loop use?
+
+## Related Documents
+
+- `docs/workflow-bootstrap-cli.md`
