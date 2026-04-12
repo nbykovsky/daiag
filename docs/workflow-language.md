@@ -931,6 +931,7 @@ wf = workflow(
 
 ## Related Documents
 
+- `docs/workflow-authoring-pipeline.md`
 - `docs/workflow-runner.md`
 - `docs/starlark-load-design.md`
 - `docs/loop-iteration-design.md`
