@@ -935,3 +935,4 @@ wf = workflow(
 - `docs/starlark-load-design.md`
 - `docs/loop-iteration-design.md`
 - `docs/subworkflow-design.md`
+- `docs/repeat-while-design.md`
