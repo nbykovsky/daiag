@@ -48,3 +48,17 @@ Output Artifacts:
 - `blueprint` — `workflow_composer/blueprint.md`
 
 Output Results: `outcome`, `blueprint_path`
+
+## workflow_author_from_blueprint
+
+Reads a natural-language workflow blueprint and implements all missing sub-workflows plus the main orchestrating workflow in the daiag catalog.
+
+File: `.daiag/workflows/workflow_author_from_blueprint/workflow.star`
+
+Inputs:
+- `blueprint_path` — path to the natural-language workflow blueprint markdown file
+
+Output Artifacts:
+- `summary` — `workflow_author_from_blueprint/summary.md`
+
+Output Results: `workflow_path`, `outcome`
