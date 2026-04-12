@@ -178,7 +178,7 @@ The builtin should unpack:
 "steps", &stepsValue,
 ```
 
-Prefer changing `unpackPredicate` to accept a field name:
+Change `unpackPredicate` to accept a field name:
 
 ```go
 func unpackPredicate(value starlark.Value, field string) (workflow.Predicate, error) {
@@ -206,11 +206,17 @@ case *When:
     if _, err := v.validateSteps(n.Steps, current, allIDs, defaultExecutor, activeLoops, declaredInputs, templateBaseDir); err != nil {
         return nil, err
     }
-    // Do not merge the returned branch scope into current.
-    // Branch outputs are intentionally invisible after the conditional.
+    // Intentionally no current update here: conditional branches do not publish
+    // branch artifacts or results to later parent steps.
 ```
 
-Do not assign the returned branch scope back to `current`.
+Validate the condition before the branch steps and against `current`, the
+pre-branch scope. This intentionally differs from `repeat_until(...)`, which
+validates `until` after body validation and against the post-body scope because
+`until` runs after the loop body.
+
+Do not assign the returned branch scope back to `current`, and do not add a
+`current[n.ID] = ...` entry for the `when(...)` node.
 
 That preserves internal validation and duplicate-ID checks while preventing
 later parent steps from referencing branch-internal outputs.
