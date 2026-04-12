@@ -82,6 +82,10 @@ only inspect existing workflow state. A useful pre-condition loop usually needs
 a check task to produce the state that the condition reads before each body
 pass.
 
+Both `check_steps` and `steps` must be present and non-empty in v1. An empty
+body would behave like a tight check-only loop, which should wait for a more
+explicit polling or wait design if a concrete workflow needs it.
+
 ## Relationship To Existing Constructs
 
 `repeat_until(...)` is a do-until loop:
@@ -113,7 +117,7 @@ The first implementation should be intentionally narrow:
 - support the existing predicate type, currently `eq(...)`
 - support `task(...)`, `repeat_until(...)`, `repeat_while(...)`,
   `when(...)`, and `subworkflow(...)` values inside `check_steps` and `steps`
-- require `check_steps` to contain at least one step
+- require both `check_steps` and `steps` to contain at least one step
 - evaluate `condition` after `check_steps` and before `steps`
 - allow zero body executions when the first condition evaluation is false
 - run at most `max_iters` body executions
@@ -208,6 +212,7 @@ Add validation errors for:
 - duplicate `repeat_while(...)` ID or duplicate nested step ID
 - `max_iters < 1`
 - missing or empty `check_steps`
+- missing or empty `steps`
 - missing or unsupported `condition`
 - unsupported node type in `check_steps` or `steps`
 - `condition` referencing an unknown step or a body-internal step
@@ -289,6 +294,9 @@ case *RepeatWhile:
     }
     if len(n.CheckSteps) == 0 {
         return nil, fmt.Errorf("repeat_while %q: check_steps are required", n.ID)
+    }
+    if len(n.Steps) == 0 {
+        return nil, fmt.Errorf("repeat_while %q: steps are required", n.ID)
     }
 
     loopScope := cloneStringSet(activeLoops)
@@ -388,10 +396,13 @@ Add focused tests:
 - `internal/starlarkdsl`: loads a workflow with `repeat_while(...)`
 - `internal/starlarkdsl`: rejects `repeat_while(max_iters < 1)`
 - `internal/starlarkdsl`: rejects empty `check_steps`
+- `internal/starlarkdsl`: rejects empty `steps`
 - `internal/starlarkdsl`: rejects a condition that references a body step
 - `internal/starlarkdsl`: rejects a later parent step that references a body
   step
+- `internal/starlarkdsl`: rejects a workflow output that references a body step
 - `internal/starlarkdsl`: allows a later parent step to reference a check step
+- `internal/starlarkdsl`: loads subworkflows inside `check_steps` and `steps`
 - `internal/starlarkdsl`: allows `loop_iter(...)` in check and body artifacts
 - `internal/runtime`: skips the body when the first condition is false
 - `internal/runtime`: runs check, body, check, then stops when the second check
