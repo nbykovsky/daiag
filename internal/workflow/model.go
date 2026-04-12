@@ -48,6 +48,19 @@ func (r *RepeatUntil) NodeID() string {
 	return r.ID
 }
 
+type When struct {
+	ID        string
+	Condition Predicate
+	Steps     []Node
+	ElseSteps []Node
+}
+
+func (*When) node() {}
+
+func (w *When) NodeID() string {
+	return w.ID
+}
+
 type Subworkflow struct {
 	ID           string
 	WorkflowPath string

@@ -35,7 +35,7 @@ func (l Loader) builtinWorkflow(_ *starlark.Thread, builtin *starlark.Builtin, a
 		return nil, err
 	}
 
-	steps, err := unpackSteps(stepsValue)
+	steps, err := unpackSteps(stepsValue, "steps")
 	if err != nil {
 		return nil, err
 	}
@@ -126,11 +126,11 @@ func (l Loader) builtinRepeatUntil(_ *starlark.Thread, builtin *starlark.Builtin
 		return nil, err
 	}
 
-	steps, err := unpackSteps(stepsValue)
+	steps, err := unpackSteps(stepsValue, "steps")
 	if err != nil {
 		return nil, err
 	}
-	predicate, err := unpackPredicate(untilValue)
+	predicate, err := unpackPredicate(untilValue, "until")
 	if err != nil {
 		return nil, err
 	}
@@ -141,6 +141,44 @@ func (l Loader) builtinRepeatUntil(_ *starlark.Thread, builtin *starlark.Builtin
 			Steps:    steps,
 			Until:    predicate,
 			MaxIters: maxIters,
+		},
+	}, nil
+}
+
+func (l Loader) builtinWhen(_ *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var id string
+	var conditionValue starlark.Value
+	var stepsValue starlark.Value
+	var elseStepsValue starlark.Value = starlark.None
+
+	if err := starlark.UnpackArgs(builtin.Name(), args, kwargs,
+		"id", &id,
+		"condition", &conditionValue,
+		"steps", &stepsValue,
+		"else_steps?", &elseStepsValue,
+	); err != nil {
+		return nil, err
+	}
+
+	condition, err := unpackPredicate(conditionValue, "condition")
+	if err != nil {
+		return nil, err
+	}
+	steps, err := unpackSteps(stepsValue, "steps")
+	if err != nil {
+		return nil, err
+	}
+	elseSteps, err := unpackOptionalSteps(elseStepsValue, "else_steps")
+	if err != nil {
+		return nil, err
+	}
+
+	return &whenValue{
+		when: &workflow.When{
+			ID:        id,
+			Condition: condition,
+			Steps:     steps,
+			ElseSteps: elseSteps,
 		},
 	}, nil
 }
@@ -352,10 +390,10 @@ func (l Loader) builtinEq(_ *starlark.Thread, builtin *starlark.Builtin, args st
 	}, nil
 }
 
-func unpackSteps(value starlark.Value) ([]workflow.Node, error) {
+func unpackSteps(value starlark.Value, field string) ([]workflow.Node, error) {
 	list, ok := value.(*starlark.List)
 	if !ok {
-		return nil, fmt.Errorf("steps must be a list")
+		return nil, fmt.Errorf("%s must be a list", field)
 	}
 
 	steps := make([]workflow.Node, 0, list.Len())
@@ -368,11 +406,20 @@ func unpackSteps(value starlark.Value) ([]workflow.Node, error) {
 			steps = append(steps, value.loop)
 		case *subworkflowValue:
 			steps = append(steps, value.subworkflow)
+		case *whenValue:
+			steps = append(steps, value.when)
 		default:
-			return nil, fmt.Errorf("steps[%d] must be a task, repeat_until, or subworkflow, got %s", i, item.Type())
+			return nil, fmt.Errorf("%s[%d] must be a task, repeat_until, subworkflow, or when, got %s", field, i, item.Type())
 		}
 	}
 	return steps, nil
+}
+
+func unpackOptionalSteps(value starlark.Value, field string) ([]workflow.Node, error) {
+	if value == starlark.None {
+		return nil, nil
+	}
+	return unpackSteps(value, field)
 }
 
 func unpackPrompt(value starlark.Value) (workflow.Prompt, error) {
@@ -540,10 +587,10 @@ func unpackOptionalExecutor(value starlark.Value) (*workflow.ExecutorConfig, err
 	return executor, nil
 }
 
-func unpackPredicate(value starlark.Value) (workflow.Predicate, error) {
+func unpackPredicate(value starlark.Value, field string) (workflow.Predicate, error) {
 	predicate, ok := value.(*predicateValue)
 	if !ok {
-		return nil, fmt.Errorf("until must be a predicate")
+		return nil, fmt.Errorf("%s must be a predicate", field)
 	}
 	return predicate.predicate, nil
 }

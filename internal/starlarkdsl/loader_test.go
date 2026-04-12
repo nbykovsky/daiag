@@ -659,6 +659,350 @@ wf = workflow(
 	}
 }
 
+func TestLoaderLoadsWorkflowWithWhen(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "conditional",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        task(
+            id = "triage",
+            prompt = "triage",
+            artifacts = {"status": artifact("docs/triage.md")},
+            result_keys = ["outcome"],
+        ),
+        when(
+            id = "address_code_issues",
+            condition = eq(json_ref("triage", "outcome"), "code_issues"),
+            steps = [
+                task(
+                    id = "repair_code",
+                    prompt = "repair",
+                    artifacts = {"status": artifact("docs/repair.md")},
+                    result_keys = ["outcome"],
+                ),
+            ],
+            else_steps = [
+                task(
+                    id = "record_no_repair_needed",
+                    prompt = "record",
+                    artifacts = {"status": artifact("docs/no-repair.md")},
+                    result_keys = ["outcome"],
+                ),
+            ],
+        ),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	wf, err := loader.Load(workflowPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(wf.Steps) != 2 {
+		t.Fatalf("step count = %d, want 2", len(wf.Steps))
+	}
+	node, ok := wf.Steps[1].(*workflow.When)
+	if !ok {
+		t.Fatalf("wf.Steps[1] = %T, want *workflow.When", wf.Steps[1])
+	}
+	if node.ID != "address_code_issues" {
+		t.Fatalf("When.ID = %q, want address_code_issues", node.ID)
+	}
+	if _, ok := node.Condition.(workflow.EqPredicate); !ok {
+		t.Fatalf("Condition = %T, want workflow.EqPredicate", node.Condition)
+	}
+	if len(node.Steps) != 1 || len(node.ElseSteps) != 1 {
+		t.Fatalf("branch lengths = %d/%d, want 1/1", len(node.Steps), len(node.ElseSteps))
+	}
+}
+
+func TestLoaderRejectsParentReferenceToWhenBranchStep(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "bad",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        task(
+            id = "triage",
+            prompt = "triage",
+            artifacts = {"status": artifact("docs/triage.md")},
+            result_keys = ["outcome"],
+        ),
+        when(
+            id = "address_code_issues",
+            condition = eq(json_ref("triage", "outcome"), "code_issues"),
+            steps = [
+                task(
+                    id = "repair_code",
+                    prompt = "repair",
+                    artifacts = {"status": artifact("docs/repair.md")},
+                    result_keys = ["outcome"],
+                ),
+            ],
+        ),
+        task(
+            id = "consume_repair",
+            prompt = "consume",
+            artifacts = {"status": artifact(path_ref("repair_code", "status"))},
+            result_keys = ["ok"],
+        ),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `unknown step "repair_code"`) {
+		t.Fatalf("Load() error = %v, want branch internal reference error", err)
+	}
+}
+
+func TestLoaderRejectsWorkflowOutputReferenceToWhenBranchStep(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "bad",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        task(
+            id = "triage",
+            prompt = "triage",
+            artifacts = {"status": artifact("docs/triage.md")},
+            result_keys = ["outcome"],
+        ),
+        when(
+            id = "address_code_issues",
+            condition = eq(json_ref("triage", "outcome"), "code_issues"),
+            steps = [
+                task(
+                    id = "repair_code",
+                    prompt = "repair",
+                    artifacts = {"status": artifact("docs/repair.md")},
+                    result_keys = ["outcome"],
+                ),
+            ],
+        ),
+    ],
+    output_artifacts = {"status": path_ref("repair_code", "status")},
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `unknown step "repair_code"`) {
+		t.Fatalf("Load() error = %v, want branch internal output reference error", err)
+	}
+}
+
+func TestLoaderRejectsWhenConditionReferenceToBranchStep(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "bad",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        when(
+            id = "gate",
+            condition = eq(json_ref("branch_task", "outcome"), "ready"),
+            steps = [
+                task(
+                    id = "branch_task",
+                    prompt = "branch",
+                    artifacts = {"status": artifact("docs/branch.md")},
+                    result_keys = ["outcome"],
+                ),
+            ],
+        ),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `when "gate": unknown step "branch_task"`) {
+		t.Fatalf("Load() error = %v, want condition reference error", err)
+	}
+}
+
+func TestLoaderRejectsCrossReferenceBetweenWhenBranches(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "bad",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        task(
+            id = "triage",
+            prompt = "triage",
+            artifacts = {"status": artifact("docs/triage.md")},
+            result_keys = ["outcome"],
+        ),
+        when(
+            id = "address_code_issues",
+            condition = eq(json_ref("triage", "outcome"), "code_issues"),
+            steps = [
+                task(
+                    id = "repair_code",
+                    prompt = "repair",
+                    artifacts = {"status": artifact("docs/repair.md")},
+                    result_keys = ["outcome"],
+                ),
+            ],
+            else_steps = [
+                task(
+                    id = "record_no_repair_needed",
+                    prompt = "record",
+                    artifacts = {"status": artifact(path_ref("repair_code", "status"))},
+                    result_keys = ["outcome"],
+                ),
+            ],
+        ),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `unknown step "repair_code"`) {
+		t.Fatalf("Load() error = %v, want cross-branch reference error", err)
+	}
+}
+
+func TestLoaderLoadsSubworkflowInsideWhen(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	childPath := workflowIDPath(baseDir, "child")
+	writeFile(t, childPath, `
+wf = workflow(
+    id = "child",
+    steps = [],
+)
+`)
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "parent",
+    steps = [
+        when(
+            id = "gate",
+            condition = eq("run", "run"),
+            steps = [
+                subworkflow(id = "child_branch", workflow = "child"),
+            ],
+        ),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	wf, err := loader.Load(workflowPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	node := wf.Steps[0].(*workflow.When)
+	sub := node.Steps[0].(*workflow.Subworkflow)
+	if sub.Workflow == nil || sub.Workflow.ID != "child" {
+		t.Fatalf("sub.Workflow = %#v, want child workflow", sub.Workflow)
+	}
+	if sub.WorkflowPath != childPath {
+		t.Fatalf("sub.WorkflowPath = %q, want %q", sub.WorkflowPath, childPath)
+	}
+}
+
+func TestLoaderRejectsDuplicateIDsAcrossWhenBranches(t *testing.T) {
+	baseDir := t.TempDir()
+	workflowPath := filepath.Join(baseDir, "workflow.star")
+	writeFile(t, workflowPath, `
+wf = workflow(
+    id = "bad",
+    default_executor = {"cli": "codex", "model": "gpt-5.4"},
+    steps = [
+        when(
+            id = "gate",
+            condition = eq("run", "run"),
+            steps = [
+                task(
+                    id = "dup",
+                    prompt = "one",
+                    artifacts = {"status": artifact("docs/one.md")},
+                    result_keys = ["ok"],
+                ),
+            ],
+            else_steps = [
+                task(
+                    id = "dup",
+                    prompt = "two",
+                    artifacts = {"status": artifact("docs/two.md")},
+                    result_keys = ["ok"],
+                ),
+            ],
+        ),
+    ],
+)
+`)
+
+	loader := Loader{BaseDir: baseDir}
+	_, err := loader.Load(workflowPath)
+	if err == nil || !contains(err.Error(), `duplicate step ID "dup"`) {
+		t.Fatalf("Load() error = %v, want duplicate branch ID error", err)
+	}
+}
+
+func TestLoaderRejectsInvalidWhenFields(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "condition",
+			body: `
+wf = workflow(
+    id = "bad",
+    steps = [
+        when(id = "gate", condition = "bad", steps = []),
+    ],
+)
+`,
+			want: `condition must be a predicate`,
+		},
+		{
+			name: "else steps",
+			body: `
+wf = workflow(
+    id = "bad",
+    steps = [
+        when(id = "gate", condition = eq("run", "run"), steps = [], else_steps = "bad"),
+    ],
+)
+`,
+			want: `else_steps must be a list`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			baseDir := t.TempDir()
+			workflowPath := filepath.Join(baseDir, "workflow.star")
+			writeFile(t, workflowPath, tt.body)
+
+			loader := Loader{BaseDir: baseDir}
+			_, err := loader.Load(workflowPath)
+			if err == nil || !contains(err.Error(), tt.want) {
+				t.Fatalf("Load() error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestLoaderLoadsSubworkflowNode(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")

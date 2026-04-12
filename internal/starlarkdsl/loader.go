@@ -115,6 +115,18 @@ func (l Loader) loadSubworkflowsInNode(node workflow.Node, baseDir string, ctx *
 			}
 		}
 		return nil
+	case *workflow.When:
+		for _, child := range n.Steps {
+			if err := l.loadSubworkflowsInNode(child, baseDir, ctx); err != nil {
+				return err
+			}
+		}
+		for _, child := range n.ElseSteps {
+			if err := l.loadSubworkflowsInNode(child, baseDir, ctx); err != nil {
+				return err
+			}
+		}
+		return nil
 	case *workflow.Subworkflow:
 		childPath, err := ResolveWorkflowID(baseDir, n.WorkflowPath)
 		if err != nil {
@@ -137,6 +149,7 @@ func (l Loader) predeclared() starlark.StringDict {
 		"workflow":     starlark.NewBuiltin("workflow", l.builtinWorkflow),
 		"task":         starlark.NewBuiltin("task", l.builtinTask),
 		"repeat_until": starlark.NewBuiltin("repeat_until", l.builtinRepeatUntil),
+		"when":         starlark.NewBuiltin("when", l.builtinWhen),
 		"subworkflow":  starlark.NewBuiltin("subworkflow", l.builtinSubworkflow),
 		"artifact":     starlark.NewBuiltin("artifact", l.builtinArtifact),
 		"path_ref":     starlark.NewBuiltin("path_ref", l.builtinPathRef),

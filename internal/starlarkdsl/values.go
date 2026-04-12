@@ -49,6 +49,19 @@ func (r *repeatUntilValue) String() string {
 	return fmt.Sprintf("repeat_until(id=%q)", r.loop.ID)
 }
 
+type whenValue struct {
+	when *workflow.When
+}
+
+func (*whenValue) Type() string          { return "when" }
+func (*whenValue) Freeze()               {}
+func (*whenValue) Truth() starlark.Bool  { return starlark.True }
+func (*whenValue) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: when") }
+
+func (w *whenValue) String() string {
+	return fmt.Sprintf("when(id=%q)", w.when.ID)
+}
+
 type subworkflowValue struct {
 	subworkflow *workflow.Subworkflow
 }

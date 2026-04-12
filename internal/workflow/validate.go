@@ -106,6 +106,16 @@ func (v Validator) validateSteps(steps []Node, seenNodes map[string]nodeInfo, al
 				return nil, fmt.Errorf("repeat_until %q: %w", n.ID, err)
 			}
 			current = loopSeen
+		case *When:
+			if err := v.validatePredicate(n.Condition, current, activeLoops, declaredInputs); err != nil {
+				return nil, fmt.Errorf("when %q: %w", n.ID, err)
+			}
+			if _, err := v.validateSteps(n.Steps, current, allIDs, defaultExecutor, activeLoops, declaredInputs, templateBaseDir); err != nil {
+				return nil, err
+			}
+			if _, err := v.validateSteps(n.ElseSteps, current, allIDs, defaultExecutor, activeLoops, declaredInputs, templateBaseDir); err != nil {
+				return nil, err
+			}
 		case *Subworkflow:
 			if err := v.validateSubworkflow(n, current, activeLoops, declaredInputs); err != nil {
 				return nil, fmt.Errorf("subworkflow %q: %w", n.ID, err)
