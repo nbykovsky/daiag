@@ -32,11 +32,11 @@ func TestAppRunInvokesRunner(t *testing.T) {
 	exitCode := app.Run(context.Background(), []string{
 		"run",
 		"--workflow", "poem",
+		"--projectdir", "/repo",
+		"--run-dir", ".daiag/runs/poem/1",
 		"--workflows-lib", "/shared/workflows",
 		"--input", "feature=poem",
-		"--param", "name=rain",
-		"--param", "mode=fast",
-		"--workdir", "/tmp/work",
+		"--input", "mode=fast",
 		"--verbose",
 	})
 
@@ -52,8 +52,11 @@ func TestAppRunInvokesRunner(t *testing.T) {
 	if runner.cfg.WorkflowsLib != "/shared/workflows" {
 		t.Fatalf("workflows lib = %q, want %q", runner.cfg.WorkflowsLib, "/shared/workflows")
 	}
-	if runner.cfg.Workdir != "/tmp/work" {
-		t.Fatalf("workdir = %q, want %q", runner.cfg.Workdir, "/tmp/work")
+	if runner.cfg.ProjectDir != "/repo" {
+		t.Fatalf("projectdir = %q, want %q", runner.cfg.ProjectDir, "/repo")
+	}
+	if runner.cfg.RunDir != ".daiag/runs/poem/1" {
+		t.Fatalf("run-dir = %q, want %q", runner.cfg.RunDir, ".daiag/runs/poem/1")
 	}
 	if !runner.cfg.Verbose {
 		t.Fatal("verbose = false, want true")
@@ -61,15 +64,12 @@ func TestAppRunInvokesRunner(t *testing.T) {
 	if got := runner.cfg.Inputs["feature"]; got != "poem" {
 		t.Fatalf("input feature = %q, want %q", got, "poem")
 	}
-	if got := runner.cfg.Params["name"]; got != "rain" {
-		t.Fatalf("param name = %q, want %q", got, "rain")
-	}
-	if got := runner.cfg.Params["mode"]; got != "fast" {
-		t.Fatalf("param mode = %q, want %q", got, "fast")
+	if got := runner.cfg.Inputs["mode"]; got != "fast" {
+		t.Fatalf("input mode = %q, want %q", got, "fast")
 	}
 }
 
-func TestAppRunMissingWorkdir(t *testing.T) {
+func TestAppRunRejectsParamFlag(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
@@ -77,76 +77,14 @@ func TestAppRunMissingWorkdir(t *testing.T) {
 	exitCode := app.Run(context.Background(), []string{
 		"run",
 		"--workflow", "poem",
-	})
-
-	if exitCode != 2 {
-		t.Fatalf("exit code = %d, want 2", exitCode)
-	}
-	if !strings.Contains(stderr.String(), "--workdir is required") {
-		t.Fatalf("stderr = %q, want workdir error", stderr.String())
-	}
-}
-
-func TestAppRunKeepsParamAsInputAlias(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-
-	runner := &fakeRunner{}
-	app := New(&stdout, &stderr, runner, nil)
-	exitCode := app.Run(context.Background(), []string{
-		"run",
-		"--workflow", "poem",
-		"--workdir", "/tmp/work",
 		"--param", "name=rain",
 	})
 
-	if exitCode != 0 {
-		t.Fatalf("exit code = %d, want 0 (stderr=%q)", exitCode, stderr.String())
-	}
-	if got := runner.cfg.Inputs["name"]; got != "rain" {
-		t.Fatalf("input name = %q, want %q", got, "rain")
-	}
-	if got := runner.cfg.Params["name"]; got != "rain" {
-		t.Fatalf("param name = %q, want %q", got, "rain")
-	}
-}
-
-func TestAppRunRejectsConflictingInputAndParam(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-
-	app := New(&stdout, &stderr, &fakeRunner{}, nil)
-	exitCode := app.Run(context.Background(), []string{
-		"run",
-		"--workflow", "poem",
-		"--input", "name=rain",
-		"--param", "name=snow",
-	})
-
 	if exitCode != 2 {
 		t.Fatalf("exit code = %d, want 2", exitCode)
 	}
-	if !strings.Contains(stderr.String(), `conflicting workflow input "name"`) {
-		t.Fatalf("stderr = %q, want conflict error", stderr.String())
-	}
-}
-
-func TestAppRunRejectsInvalidParam(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-
-	app := New(&stdout, &stderr, &fakeRunner{}, nil)
-	exitCode := app.Run(context.Background(), []string{
-		"run",
-		"--workflow", "poem",
-		"--param", "invalid",
-	})
-
-	if exitCode != 2 {
-		t.Fatalf("exit code = %d, want 2", exitCode)
-	}
-	if !strings.Contains(stderr.String(), `invalid --param "invalid"`) {
-		t.Fatalf("stderr = %q, want param validation error", stderr.String())
+	if !strings.Contains(stderr.String(), `flag provided but not defined: -param`) {
+		t.Fatalf("stderr = %q, want unknown --param error", stderr.String())
 	}
 }
 
@@ -158,7 +96,6 @@ func TestAppRunPropagatesRunnerError(t *testing.T) {
 	exitCode := app.Run(context.Background(), []string{
 		"run",
 		"--workflow", "poem",
-		"--workdir", "/tmp/work",
 	})
 
 	if exitCode != 1 {
@@ -188,7 +125,9 @@ func TestAppValidateInvokesValidator(t *testing.T) {
 	exitCode := app.Run(context.Background(), []string{
 		"validate",
 		"--workflow", "poem",
+		"--projectdir", "/repo",
 		"--workflows-lib", "/shared/workflows",
+		"--input", "name=rain",
 	})
 	if exitCode != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr=%q)", exitCode, stderr.String())
@@ -201,6 +140,12 @@ func TestAppValidateInvokesValidator(t *testing.T) {
 	}
 	if v.cfg.WorkflowsLib != "/shared/workflows" {
 		t.Fatalf("workflows-lib = %q, want %q", v.cfg.WorkflowsLib, "/shared/workflows")
+	}
+	if v.cfg.ProjectDir != "/repo" {
+		t.Fatalf("projectdir = %q, want %q", v.cfg.ProjectDir, "/repo")
+	}
+	if got := v.cfg.Inputs["name"]; got != "rain" {
+		t.Fatalf("input name = %q, want %q", got, "rain")
 	}
 }
 

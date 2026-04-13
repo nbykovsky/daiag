@@ -11,3 +11,6 @@ dist/
 cover.out
 coverage.out
 *.test
+
+# daiag
+.daiag/runs/

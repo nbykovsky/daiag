@@ -10,8 +10,8 @@ import (
 )
 
 const usageText = `Usage:
-  daiag run --workflow <workflow-id> --workdir <path> [--workflows-lib <dir>] [--input key=value] [--param key=value] [--verbose]
-  daiag validate --workflow <workflow-id> [--workflows-lib <dir>]
+  daiag run --workflow <workflow-id> [--projectdir <path>] [--run-dir <path>] [--workflows-lib <dir>] [--input key=value] [--verbose]
+  daiag validate --workflow <workflow-id> [--projectdir <path>] [--workflows-lib <dir>] [--input key=value]
 
 Commands:
   run       Execute a workflow
@@ -37,14 +37,16 @@ type RunConfig struct {
 	Workflow     string
 	WorkflowsLib string
 	Inputs       map[string]string
-	Params       map[string]string
-	Workdir      string
+	ProjectDir   string
+	RunDir       string
 	Verbose      bool
 }
 
 type ValidateConfig struct {
 	Workflow     string
 	WorkflowsLib string
+	Inputs       map[string]string
+	ProjectDir   string
 }
 
 func New(stdout, stderr io.Writer, runner Runner, validator Validator) *App {
@@ -105,17 +107,16 @@ func (a *App) printUsage(w io.Writer) {
 func parseRunArgs(args []string) (RunConfig, error) {
 	var cfg RunConfig
 	var inputs multiFlag
-	var params multiFlag
 
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 
 	fs.StringVar(&cfg.Workflow, "workflow", "", "workflow ID")
+	fs.StringVar(&cfg.ProjectDir, "projectdir", "", "project directory")
+	fs.StringVar(&cfg.RunDir, "run-dir", "", "run artifact directory")
 	fs.StringVar(&cfg.WorkflowsLib, "workflows-lib", "", "workflow library directory")
-	fs.StringVar(&cfg.Workdir, "workdir", "", "working directory")
 	fs.BoolVar(&cfg.Verbose, "verbose", false, "enable verbose output")
 	fs.Var(&inputs, "input", "workflow input in key=value form")
-	fs.Var(&params, "param", "workflow parameter in key=value form")
 
 	if err := fs.Parse(args); err != nil {
 		return RunConfig{}, err
@@ -135,37 +136,20 @@ func parseRunArgs(args []string) (RunConfig, error) {
 		}
 		inputMap[key] = value
 	}
-	paramMap := make(map[string]string, len(params))
-	for _, raw := range params {
-		key, value, err := parseKeyValue("--param", raw)
-		if err != nil {
-			return RunConfig{}, err
-		}
-		paramMap[key] = value
-	}
-
-	merged := cloneStringMap(inputMap)
-	for key, value := range paramMap {
-		if existing, ok := inputMap[key]; ok && existing != value {
-			return RunConfig{}, fmt.Errorf("conflicting workflow input %q from --input and --param", key)
-		}
-		merged[key] = value
-	}
-	if cfg.Workdir == "" {
-		return RunConfig{}, errors.New("--workdir is required")
-	}
-	cfg.Inputs = cloneStringMap(merged)
-	cfg.Params = cloneStringMap(merged)
+	cfg.Inputs = cloneStringMap(inputMap)
 
 	return cfg, nil
 }
 
 func parseValidateArgs(args []string) (ValidateConfig, error) {
 	var cfg ValidateConfig
+	var inputs multiFlag
 	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.StringVar(&cfg.Workflow, "workflow", "", "workflow ID")
+	fs.StringVar(&cfg.ProjectDir, "projectdir", "", "project directory")
 	fs.StringVar(&cfg.WorkflowsLib, "workflows-lib", "", "workflow library directory")
+	fs.Var(&inputs, "input", "workflow input in key=value form")
 	if err := fs.Parse(args); err != nil {
 		return ValidateConfig{}, err
 	}
@@ -175,6 +159,15 @@ func parseValidateArgs(args []string) (ValidateConfig, error) {
 	if cfg.Workflow == "" {
 		return ValidateConfig{}, errors.New("--workflow is required")
 	}
+	inputMap := make(map[string]string, len(inputs))
+	for _, raw := range inputs {
+		key, value, err := parseKeyValue("--input", raw)
+		if err != nil {
+			return ValidateConfig{}, err
+		}
+		inputMap[key] = value
+	}
+	cfg.Inputs = cloneStringMap(inputMap)
 	return cfg, nil
 }
 
