@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	claudeexec "daiag/internal/executor/claude"
 	codexexec "daiag/internal/executor/codex"
@@ -62,19 +63,70 @@ func (r workflowRunner) Run(ctx context.Context, cfg RunConfig) error {
 	if err != nil {
 		return err
 	}
-	workflowPath, err := starlarkdsl.ResolveWorkflowID(workflowsLib, cfg.Workflow)
+	result, err := r.executeWorkflow(ctx, cfg.Workflow, projectDir, runDir, workflowsLib, cfg.Inputs)
+	if err != nil {
+		return err
+	}
+	return printWorkflowOutputs(r.stdout, result)
+}
+
+func (r workflowRunner) Bootstrap(ctx context.Context, cfg BootstrapConfig) error {
+	projectDir, err := resolveProjectDir(cfg.ProjectDir)
+	if err != nil {
+		return err
+	}
+	workflowsLib, err := resolveWorkflowsLib(projectDir, cfg.WorkflowsLib)
+	if err != nil {
+		return err
+	}
+	if !pathWithin(projectDir, workflowsLib) {
+		return fmt.Errorf("--workflows-lib %q must be inside --projectdir %q for bootstrap", workflowsLib, projectDir)
+	}
+	runDir, err := resolveRunDir(projectDir, cfg.RunDir, "bootstrap")
+	if err != nil {
+		return err
+	}
+	description, err := readBootstrapDescription(cfg)
 	if err != nil {
 		return err
 	}
 
+	result, err := r.executeWorkflow(ctx, cfg.Workflow, projectDir, runDir, workflowsLib, map[string]string{
+		"description":   description,
+		"workflows_lib": workflowsLib,
+	})
+	if err != nil {
+		return err
+	}
+	workflowID, workflowPath, err := validateBootstrapResult(result, workflowsLib)
+	if err != nil {
+		return err
+	}
+	if err := validateGeneratedWorkflow(workflowsLib, workflowID); err != nil {
+		return err
+	}
+
+	fmt.Fprintln(r.stdout, "bootstrap complete")
+	fmt.Fprintf(r.stdout, "workflow: %s\n", workflowID)
+	fmt.Fprintf(r.stdout, "workflow path: %s\n", workflowPath)
+	fmt.Fprintf(r.stdout, "run dir: %s\n", result.RunDir)
+	return nil
+}
+
+func (r workflowRunner) executeWorkflow(ctx context.Context, workflowID string, projectDir string, runDir string, workflowsLib string, inputs map[string]string) (*runtime.RunResult, error) {
+	workflowPath, err := starlarkdsl.ResolveWorkflowID(workflowsLib, workflowID)
+	if err != nil {
+		return nil, err
+	}
+
 	loader := starlarkdsl.Loader{
-		Params:  cfg.Inputs,
-		Inputs:  cfg.Inputs,
+		Params:  inputs,
+		Inputs:  inputs,
 		BaseDir: workflowsLib,
 	}
 	wf, err := loader.Load(workflowPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	logger := logging.New(r.stdout)
@@ -86,18 +138,14 @@ func (r workflowRunner) Run(ctx context.Context, cfg RunConfig) error {
 		Logger: logger,
 	}
 
-	result, err := engine.Run(ctx, runtime.RunInput{
+	return engine.Run(ctx, runtime.RunInput{
 		Workflow:     wf,
 		WorkflowPath: workflowPath,
 		BaseDir:      workflowsLib,
 		ProjectDir:   projectDir,
 		RunDir:       runDir,
-		Inputs:       anyInputs(cfg.Inputs),
+		Inputs:       anyInputs(inputs),
 	})
-	if err != nil {
-		return err
-	}
-	return printWorkflowOutputs(r.stdout, result)
 }
 
 func resolveProjectDir(path string) (string, error) {
@@ -239,6 +287,96 @@ func createUniqueRunDir(base string) (string, error) {
 func runTimestamp(t time.Time) string {
 	t = t.UTC()
 	return fmt.Sprintf("%s-%09dZ", t.Format("20060102-150405"), t.Nanosecond())
+}
+
+func readBootstrapDescription(cfg BootstrapConfig) (string, error) {
+	if cfg.Description != "" {
+		return cfg.Description, nil
+	}
+	path := cfg.DescriptionFile
+	if !filepath.IsAbs(path) {
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			return "", fmt.Errorf("resolve --description-file: %w", err)
+		}
+		path = absPath
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read --description-file %q: %w", path, err)
+	}
+	if !utf8.Valid(data) {
+		return "", fmt.Errorf("--description-file %q is not valid UTF-8", path)
+	}
+	return string(data), nil
+}
+
+func validateBootstrapResult(result *runtime.RunResult, workflowsLib string) (string, string, error) {
+	if result == nil {
+		return "", "", fmt.Errorf("bootstrap workflow returned no result")
+	}
+	workflowID, err := requiredStringResult(result, "workflow_id")
+	if err != nil {
+		return "", "", err
+	}
+	workflowPath, err := requiredStringResult(result, "workflow_path")
+	if err != nil {
+		return "", "", err
+	}
+	outcome, err := requiredStringResult(result, "outcome")
+	if err != nil {
+		return "", "", err
+	}
+	if outcome != "complete" {
+		return "", "", fmt.Errorf("bootstrap outcome = %q, want complete", outcome)
+	}
+	if !filepath.IsAbs(workflowPath) {
+		return "", "", fmt.Errorf("bootstrap result workflow_path %q must be absolute", workflowPath)
+	}
+
+	expectedPath := filepath.Join(workflowsLib, workflowID, "workflow.star")
+	resolvedExpected, err := filepath.EvalSymlinks(expectedPath)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve expected generated workflow path %q: %w", expectedPath, err)
+	}
+	resolvedActual, err := filepath.EvalSymlinks(workflowPath)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve bootstrap workflow_path %q: %w", workflowPath, err)
+	}
+	resolvedExpected = filepath.Clean(resolvedExpected)
+	resolvedActual = filepath.Clean(resolvedActual)
+	if resolvedActual != resolvedExpected {
+		return "", "", fmt.Errorf("bootstrap result workflow_path %q must match %q", resolvedActual, resolvedExpected)
+	}
+
+	return workflowID, resolvedActual, nil
+}
+
+func requiredStringResult(result *runtime.RunResult, key string) (string, error) {
+	value, ok := result.OutputResults[key]
+	if !ok {
+		return "", fmt.Errorf("bootstrap output result %q is required", key)
+	}
+	text, ok := value.(string)
+	if !ok {
+		return "", fmt.Errorf("bootstrap output result %q must be a string", key)
+	}
+	if text == "" {
+		return "", fmt.Errorf("bootstrap output result %q must not be empty", key)
+	}
+	return text, nil
+}
+
+func validateGeneratedWorkflow(workflowsLib string, workflowID string) error {
+	workflowPath, err := starlarkdsl.ResolveWorkflowID(workflowsLib, workflowID)
+	if err != nil {
+		return fmt.Errorf("validate generated workflow %q: %w", workflowID, err)
+	}
+	loader := starlarkdsl.Loader{BaseDir: workflowsLib}
+	if _, err := loader.Load(workflowPath); err != nil {
+		return fmt.Errorf("validate generated workflow %q: %w", workflowID, err)
+	}
+	return nil
 }
 
 func cleanExistingDirFlag(flagName string, path string) (string, error) {

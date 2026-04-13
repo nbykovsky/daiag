@@ -179,15 +179,106 @@ func TestAppValidateSuccessPrintsMessage(t *testing.T) {
 	}
 }
 
+func TestAppBootstrapInvokesBootstrapper(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	runner := &fakeRunner{}
+	app := New(&stdout, &stderr, runner, nil)
+	exitCode := app.Run(context.Background(), []string{
+		"bootstrap",
+		"--description", "create a workflow",
+		"--workflow", "custom_bootstrap",
+		"--projectdir", "/repo",
+		"--run-dir", ".daiag/runs/bootstrap/1",
+		"--workflows-lib", ".daiag/workflows",
+		"--verbose",
+	})
+
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr=%q)", exitCode, stderr.String())
+	}
+	if !runner.bootstrapCalled {
+		t.Fatal("bootstrapper was not called")
+	}
+	if runner.bootstrapCfg.Workflow != "custom_bootstrap" {
+		t.Fatalf("workflow = %q, want custom_bootstrap", runner.bootstrapCfg.Workflow)
+	}
+	if runner.bootstrapCfg.Description != "create a workflow" {
+		t.Fatalf("description = %q, want create a workflow", runner.bootstrapCfg.Description)
+	}
+	if runner.bootstrapCfg.ProjectDir != "/repo" {
+		t.Fatalf("projectdir = %q, want /repo", runner.bootstrapCfg.ProjectDir)
+	}
+	if runner.bootstrapCfg.RunDir != ".daiag/runs/bootstrap/1" {
+		t.Fatalf("run-dir = %q, want .daiag/runs/bootstrap/1", runner.bootstrapCfg.RunDir)
+	}
+	if runner.bootstrapCfg.WorkflowsLib != ".daiag/workflows" {
+		t.Fatalf("workflows-lib = %q, want .daiag/workflows", runner.bootstrapCfg.WorkflowsLib)
+	}
+	if !runner.bootstrapCfg.Verbose {
+		t.Fatal("verbose = false, want true")
+	}
+}
+
+func TestAppBootstrapDefaultsWorkflow(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	runner := &fakeRunner{}
+	app := New(&stdout, &stderr, runner, nil)
+	exitCode := app.Run(context.Background(), []string{
+		"bootstrap",
+		"--description", "create a workflow",
+	})
+
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr=%q)", exitCode, stderr.String())
+	}
+	if runner.bootstrapCfg.Workflow != "workflow_bootstrapper" {
+		t.Fatalf("workflow = %q, want workflow_bootstrapper", runner.bootstrapCfg.Workflow)
+	}
+}
+
+func TestAppBootstrapRejectsDescriptionAndDescriptionFile(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	app := New(&stdout, &stderr, &fakeRunner{}, nil)
+	exitCode := app.Run(context.Background(), []string{
+		"bootstrap",
+		"--description", "create a workflow",
+		"--description-file", "request.md",
+	})
+
+	if exitCode != 2 {
+		t.Fatalf("exit code = %d, want 2", exitCode)
+	}
+	if !strings.Contains(stderr.String(), "exactly one of --description or --description-file is required") {
+		t.Fatalf("stderr = %q, want description conflict error", stderr.String())
+	}
+}
+
 type fakeRunner struct {
-	called bool
-	cfg    RunConfig
-	err    error
+	called          bool
+	bootstrapCalled bool
+	cfg             RunConfig
+	bootstrapCfg    BootstrapConfig
+	err             error
 }
 
 func (f *fakeRunner) Run(_ context.Context, cfg RunConfig) error {
 	f.called = true
 	f.cfg = cfg
+	if f.err != nil {
+		return f.err
+	}
+	return nil
+}
+
+func (f *fakeRunner) Bootstrap(_ context.Context, cfg BootstrapConfig) error {
+	f.bootstrapCalled = true
+	f.bootstrapCfg = cfg
 	if f.err != nil {
 		return f.err
 	}

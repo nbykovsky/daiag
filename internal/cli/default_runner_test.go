@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -264,6 +265,88 @@ wf = workflow(
 	}
 }
 
+func TestDefaultRunnerBootstrapValidatesGeneratedWorkflow(t *testing.T) {
+	projectDir := t.TempDir()
+	workflowsLib := filepath.Join(projectDir, ".daiag", "workflows")
+	writeBootstrapCLITestWorkflow(t, workflowsLib, "workflow_bootstrapper", "generated", "complete", "generated")
+	writeCLITestFile(t, filepath.Join(workflowsLib, "generated", "workflow.star"), `
+name = input("name")
+
+wf = workflow(
+    id = "generated",
+    inputs = ["name"],
+    steps = [],
+)
+`)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	app := NewDefault(&stdout, &stderr)
+
+	exitCode := app.Run(context.Background(), []string{
+		"bootstrap",
+		"--description", "create a generated workflow",
+		"--projectdir", projectDir,
+	})
+
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr=%q)", exitCode, stderr.String())
+	}
+	canonicalProjectDir, err := filepath.EvalSymlinks(projectDir)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", projectDir, err)
+	}
+	workflowPath := filepath.Join(workflowsLib, "generated", "workflow.star")
+	canonicalWorkflowPath, err := filepath.EvalSymlinks(workflowPath)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", workflowPath, err)
+	}
+	for _, fragment := range []string{
+		"workflow start id=workflow_bootstrapper",
+		"bootstrap complete",
+		"workflow: generated",
+		"workflow path: " + canonicalWorkflowPath,
+		"run dir: ",
+	} {
+		if !strings.Contains(stdout.String(), fragment) {
+			t.Fatalf("stdout missing %q:\n%s", fragment, stdout.String())
+		}
+	}
+	if !strings.Contains(stdout.String(), filepath.Join(canonicalProjectDir, ".daiag", "runs", "bootstrap")) {
+		t.Fatalf("stdout missing bootstrap run dir under project:\n%s", stdout.String())
+	}
+}
+
+func TestDefaultRunnerBootstrapRejectsUnexpectedWorkflowPath(t *testing.T) {
+	projectDir := t.TempDir()
+	workflowsLib := filepath.Join(projectDir, ".daiag", "workflows")
+	writeBootstrapCLITestWorkflow(t, workflowsLib, "bad_bootstrapper", "generated", "complete", "other")
+	writeCLITestFile(t, filepath.Join(workflowsLib, "generated", "workflow.star"), `
+wf = workflow(id = "generated", steps = [])
+`)
+	writeCLITestFile(t, filepath.Join(workflowsLib, "other", "workflow.star"), `
+wf = workflow(id = "other", steps = [])
+`)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	app := NewDefault(&stdout, &stderr)
+
+	exitCode := app.Run(context.Background(), []string{
+		"bootstrap",
+		"--description", "create a generated workflow",
+		"--projectdir", projectDir,
+		"--workflow", "bad_bootstrapper",
+	})
+
+	if exitCode != 1 {
+		t.Fatalf("exit code = %d, want 1", exitCode)
+	}
+	if !strings.Contains(stderr.String(), "must match") {
+		t.Fatalf("stderr = %q, want workflow path contract error", stderr.String())
+	}
+}
+
 func TestDefaultRunnerUsesDefaultWorkflowsLibFromProjectRoot(t *testing.T) {
 	projectDir := t.TempDir()
 	workflowsLib := filepath.Join(projectDir, ".daiag", "workflows")
@@ -427,6 +510,24 @@ func writeValidateTestWorkflow(t *testing.T, workflowsLib string) {
 	writeCLITestFile(t, filepath.Join(workflowsLib, "simple", "workflow.star"), `
 wf = workflow(id = "simple", steps = [])
 `)
+}
+
+func writeBootstrapCLITestWorkflow(t *testing.T, workflowsLib string, bootstrapID string, generatedID string, outcome string, pathWorkflowID string) {
+	t.Helper()
+	writeCLITestFile(t, filepath.Join(workflowsLib, bootstrapID, "workflow.star"), fmt.Sprintf(`
+workflows_lib = input("workflows_lib")
+
+wf = workflow(
+    id = %q,
+    inputs = ["description", "workflows_lib"],
+    steps = [],
+    output_results = {
+        "workflow_id": %q,
+        "workflow_path": format("{workflows_lib}/%s/workflow.star", workflows_lib = workflows_lib),
+        "outcome": %q,
+    },
+)
+`, bootstrapID, generatedID, pathWorkflowID, outcome))
 }
 
 func writeCLITestWorkflow(t *testing.T, workflowsLib string) string {

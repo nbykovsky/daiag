@@ -12,10 +12,12 @@ import (
 const usageText = `Usage:
   daiag run --workflow <workflow-id> [--projectdir <path>] [--run-dir <path>] [--workflows-lib <dir>] [--input key=value] [--verbose]
   daiag validate --workflow <workflow-id> [--projectdir <path>] [--workflows-lib <dir>] [--input key=value]
+  daiag bootstrap (--description <text> | --description-file <path>) [--workflow <bootstrap-workflow-id>] [--projectdir <path>] [--run-dir <path>] [--workflows-lib <dir>] [--verbose]
 
 Commands:
-  run       Execute a workflow
-  validate  Parse and validate a workflow without executing it
+  run        Execute a workflow
+  validate   Parse and validate a workflow without executing it
+  bootstrap  Generate a workflow through the workflow catalog bootstrapper
 `
 
 type Runner interface {
@@ -26,11 +28,16 @@ type Validator interface {
 	Validate(context.Context, ValidateConfig) error
 }
 
+type Bootstrapper interface {
+	Bootstrap(context.Context, BootstrapConfig) error
+}
+
 type App struct {
-	stdout    io.Writer
-	stderr    io.Writer
-	runner    Runner
-	validator Validator
+	stdout       io.Writer
+	stderr       io.Writer
+	runner       Runner
+	validator    Validator
+	bootstrapper Bootstrapper
 }
 
 type RunConfig struct {
@@ -49,12 +56,24 @@ type ValidateConfig struct {
 	ProjectDir   string
 }
 
+type BootstrapConfig struct {
+	Workflow        string
+	Description     string
+	DescriptionFile string
+	ProjectDir      string
+	RunDir          string
+	WorkflowsLib    string
+	Verbose         bool
+}
+
 func New(stdout, stderr io.Writer, runner Runner, validator Validator) *App {
+	bootstrapper, _ := runner.(Bootstrapper)
 	return &App{
-		stdout:    stdout,
-		stderr:    stderr,
-		runner:    runner,
-		validator: validator,
+		stdout:       stdout,
+		stderr:       stderr,
+		runner:       runner,
+		validator:    validator,
+		bootstrapper: bootstrapper,
 	}
 }
 
@@ -89,6 +108,22 @@ func (a *App) Run(ctx context.Context, args []string) int {
 			return 1
 		}
 		fmt.Fprintf(a.stdout, "workflow %q is valid\n", cfg.Workflow)
+		return 0
+	case "bootstrap":
+		cfg, err := parseBootstrapArgs(args[1:])
+		if err != nil {
+			fmt.Fprintf(a.stderr, "error: %v\n\n", err)
+			a.printUsage(a.stderr)
+			return 2
+		}
+		if a.bootstrapper == nil {
+			fmt.Fprintln(a.stderr, "error: bootstrap command is unavailable")
+			return 1
+		}
+		if err := a.bootstrapper.Bootstrap(ctx, cfg); err != nil {
+			fmt.Fprintf(a.stderr, "error: %v\n", err)
+			return 1
+		}
 		return 0
 	case "help", "-h", "--help":
 		a.printUsage(a.stdout)
@@ -168,6 +203,38 @@ func parseValidateArgs(args []string) (ValidateConfig, error) {
 		inputMap[key] = value
 	}
 	cfg.Inputs = cloneStringMap(inputMap)
+	return cfg, nil
+}
+
+func parseBootstrapArgs(args []string) (BootstrapConfig, error) {
+	cfg := BootstrapConfig{Workflow: "workflow_bootstrapper"}
+
+	fs := flag.NewFlagSet("bootstrap", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	fs.StringVar(&cfg.Workflow, "workflow", cfg.Workflow, "bootstrap workflow ID")
+	fs.StringVar(&cfg.Description, "description", "", "workflow request")
+	fs.StringVar(&cfg.DescriptionFile, "description-file", "", "workflow request file")
+	fs.StringVar(&cfg.ProjectDir, "projectdir", "", "project directory")
+	fs.StringVar(&cfg.RunDir, "run-dir", "", "run artifact directory")
+	fs.StringVar(&cfg.WorkflowsLib, "workflows-lib", "", "workflow library directory")
+	fs.BoolVar(&cfg.Verbose, "verbose", false, "enable verbose output")
+
+	if err := fs.Parse(args); err != nil {
+		return BootstrapConfig{}, err
+	}
+	if fs.NArg() > 0 {
+		return BootstrapConfig{}, fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+	if cfg.Workflow == "" {
+		return BootstrapConfig{}, errors.New("--workflow must not be empty")
+	}
+	hasDescription := cfg.Description != ""
+	hasDescriptionFile := cfg.DescriptionFile != ""
+	if hasDescription == hasDescriptionFile {
+		return BootstrapConfig{}, errors.New("exactly one of --description or --description-file is required")
+	}
+
 	return cfg, nil
 }
 
