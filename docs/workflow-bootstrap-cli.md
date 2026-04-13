@@ -75,6 +75,8 @@ Bootstrapping needs these concepts to be separate:
   loaded workflow graph.
 - Do not solve undo or review flows in the first implementation. Use Git for
   reviewing or reverting direct workspace edits.
+- Do not support `run-dir` outside `projectdir`; keeping run artifacts inside
+  the project avoids extra executor writable roots.
 
 ## New Path Model
 
@@ -107,9 +109,17 @@ Rules:
   `.daiag/runs/<workflow-id>/<timestamp>`
 - Default for `daiag bootstrap`:
   `.daiag/runs/bootstrap/<timestamp>`
+- The default timestamp uses UTC with nanosecond precision:
+  `YYYYMMDD-HHMMSS-NNNNNNNNNZ`.
+- If the default run directory already exists, the CLI should retry with a
+  fresh timestamp and then append an incrementing `-NN` suffix until it can
+  create a new directory.
 - Relative `--run-dir` values are resolved from `projectdir`.
-- The CLI creates the directory before execution.
+- The CLI creates the directory before execution. An explicit `--run-dir` may
+  already exist; the CLI should reuse it after validating that it is a
+  directory inside `projectdir`.
 - For the first implementation, `run-dir` must be inside `projectdir`.
+- Containment checks use cleaned absolute paths after resolving symlinks.
 - Relative `artifact(...)` paths and `output_artifacts` paths resolve against
   `run-dir`.
 - A new `run_dir()` DSL builtin resolves to this path.
@@ -137,6 +147,7 @@ Rules:
   workflow files and the library used for post-generation validation.
 - Because the first implementation roots executor writes at `projectdir`,
   bootstrap should require `workflows-lib` to be inside `projectdir`.
+- Containment checks use cleaned absolute paths after resolving symlinks.
 
 ## Command Shape
 
@@ -155,12 +166,10 @@ daiag run \
 Breaking changes:
 
 - Remove `--workdir`.
+- Remove `--param`; use `--input` for all workflow inputs.
 - Relative `--run-dir` and `--workflows-lib` paths resolve from `projectdir`,
   not from the process current working directory.
 - Executors run from `projectdir`, not from the run artifact directory.
-
-`--param` compatibility is outside this design. New workflows should continue
-to use `workflow(inputs = [...])` and `--input`.
 
 ### `daiag validate`
 
@@ -182,7 +191,7 @@ runtime artifact existence.
 
 ```sh
 daiag bootstrap \
-  --description "<workflow request>" \
+  (--description "<workflow request>" | --description-file <path>) \
   [--workflow <bootstrap-workflow-id>] \
   [--projectdir <path>] \
   [--run-dir <path>] \
@@ -190,13 +199,10 @@ daiag bootstrap \
   [--verbose]
 ```
 
-Optional future convenience:
-
-```sh
-daiag bootstrap --description-file docs/new-workflow.md
-```
-
-`--description` is enough for the first implementation.
+Exactly one of `--description` or `--description-file` is required.
+`--description-file` reads the workflow request from a UTF-8 text file.
+Relative `--description-file` values are resolved from the process current
+working directory.
 
 ## Bootstrap Behavior
 
@@ -207,15 +213,17 @@ Recommended first implementation:
 1. Resolve `projectdir`, `run-dir`, and `workflows-lib`.
 2. Run the selected catalog bootstrap workflow. Default to
    `workflow_bootstrapper`.
-3. Pass the user request as `--input description=<description>`.
-4. Execute tasks with executor CWD set to `projectdir`.
-5. Resolve relative declared artifacts against `run-dir`.
-6. Let the workflow-authoring task write generated workflow files directly under
+3. Read the workflow request from `--description` or `--description-file`.
+4. Pass `description=<description>` and `workflows_lib=<abs workflows-lib>` as
+   bootstrap workflow inputs.
+5. Execute tasks with executor CWD set to `projectdir`.
+6. Resolve relative declared artifacts against `run-dir`.
+7. Let the workflow-authoring task write generated workflow files directly under
    `workflows-lib` as project workspace edits.
-7. Read the bootstrap workflow output results from the runtime result.
-8. Require `outcome = "complete"`.
-9. Validate the generated workflow ID from `workflows-lib`.
-10. Print the generated workflow ID, workflow path, and run directory.
+8. Read the bootstrap workflow output results from the runtime result.
+9. Require `outcome = "complete"`.
+10. Validate the generated workflow ID from `workflows-lib`.
+11. Print the generated workflow ID, workflow path, and run directory.
 
 Expected output shape:
 
@@ -251,6 +259,8 @@ Every bootstrap workflow selected by this flag should follow the same contract.
 Input:
 
 - `description` - the user's natural-language workflow request
+- `workflows_lib` - absolute path to the selected workflow catalog where the
+  bootstrap workflow should write generated workflow files
 
 Output artifacts:
 
@@ -263,9 +273,19 @@ Output results:
 - `workflow_path` - generated workflow `.star` path
 - `outcome` - `complete` or `needs_clarification`
 
+`workflow_id`, `workflow_path`, and `outcome` are required string results. The
+CLI should fail if any are missing or are not strings. It should not infer
+`workflow_id` from `workflow_path`.
+
+`workflow_path` must be absolute. After cleaning both paths and resolving
+symlinks, it must match `<resolved workflows-lib>/<workflow_id>/workflow.star`.
+If it does not match, the CLI should fail before validation.
+
 The concrete bootstrap workflow implementation is intentionally outside this
 CLI spec. A bootstrap workflow may compose any authoring workflow or task
 sequence as long as it satisfies this input, artifact, and result contract.
+Any existing authoring workflow used by the default bootstrap workflow must be
+updated or wrapped to return `workflow_id`.
 
 ## Runtime Changes
 
@@ -307,19 +327,56 @@ Executor behavior:
 
 Artifact behavior:
 
-- Relative task artifacts resolve against `RunDir`.
-- Relative workflow output artifacts resolve against `RunDir`.
-- Absolute artifact paths are preserved.
-- For a first implementation, absolute artifact paths should be under
-  `ProjectDir` or `RunDir`; paths outside those roots should fail validation or
-  execution with a clear error.
+- Relative task artifacts and relative workflow output artifacts resolve by
+  joining the cleaned relative path to `RunDir`.
+- After clean/join and symlink resolution, relative artifact paths must remain
+  under `RunDir`. A path such as `artifact("../foo.md")` is invalid even if the
+  resolved file would still be under `ProjectDir`.
+- Absolute artifact paths are preserved, but after cleaning and symlink
+  resolution they must remain under `ProjectDir`.
+- Paths outside the allowed root should fail validation or execution with a
+  clear error.
+- Static validation should check literal absolute artifact paths when the path
+  is known without runtime data.
+- Runtime validation should check every resolved artifact path after evaluating
+  `input(...)`, `format(...)`, `path_ref(...)`, `json_ref(...)`, `run_dir()`,
+  or `projectdir()`. This catches computed paths and relative paths containing
+  `..`.
 
 Runtime result behavior:
 
 - After all top-level steps complete, resolve the workflow's
   `output_artifacts` and `output_results`.
-- Return them to the CLI in a `RunResult`.
-- `daiag run` may print a concise summary.
+- Return them to the CLI in a `RunResult`:
+
+```go
+type RunResult struct {
+    EntryWorkflowID   string
+    EntryWorkflowPath string
+    ProjectDir       string
+    RunDir           string
+    OutputArtifacts  map[string]string
+    OutputResults    map[string]any
+}
+```
+
+- `OutputArtifacts` contains resolved absolute artifact paths.
+- `OutputResults` contains JSON-compatible values from `output_results`.
+- If any step fails, return a non-nil error and do not return a partial
+  successful `RunResult`.
+- If any top-level output cannot be resolved, return a non-nil error with the
+  output key in the error context and do not return a partial successful
+  `RunResult`.
+- `daiag run` should print resolved top-level workflow outputs to stdout after
+  a successful run, after normal progress messages. If there are no top-level
+  outputs, it should not print an output summary.
+- The human-readable output summary should start with `workflow outputs:`. Then
+  print artifact lines first and result lines second.
+- Artifact keys and result keys should each be sorted lexicographically.
+- Artifact lines should use `artifact <key>: <absolute-path>`.
+- Result lines should use `result <key>: <json>`, where `<json>` is the
+  single-line JSON encoding of the resolved value.
+- A future machine-readable flag such as `--format json` can reuse `RunResult`.
 - `daiag bootstrap` must use the result to find `workflow_id`,
   `workflow_path`, and `outcome`.
 
@@ -344,12 +401,13 @@ Rules:
 Example:
 
 ```python
+workflows_lib = input("workflows_lib")
 project_catalog = format(
-    "{project}/.daiag/workflows/WORKFLOWS.md",
-    project = projectdir(),
+    "{workflows_lib}/WORKFLOWS.md",
+    workflows_lib = workflows_lib,
 )
 summary_path = format(
-    "{run_dir}/workflow_author_from_blueprint/summary.md",
+    "{run_dir}/author/summary.md",
     run_dir = run_dir(),
 )
 
@@ -364,9 +422,10 @@ task(
 )
 ```
 
-In most bootstrap prompts, relative repo paths such as
-`.daiag/workflows/WORKFLOWS.md` are also valid because the executor CWD is
-`projectdir`.
+In bootstrap prompts that only target the default catalog, relative repo paths
+such as `.daiag/workflows/WORKFLOWS.md` are also valid because the executor CWD
+is `projectdir`. Prompts that need to honor `--workflows-lib` should use the
+`workflows_lib` input.
 
 ## Example
 
@@ -382,7 +441,7 @@ Execution paths:
 ```text
 projectdir:    /Users/nik/Projects/daiag
 workflows-lib: /Users/nik/Projects/daiag/.daiag/workflows
-run-dir:       /Users/nik/Projects/daiag/.daiag/runs/bootstrap/20260413-123000
+run-dir:       /Users/nik/Projects/daiag/.daiag/runs/bootstrap/20260413-123000-123456789Z
 ```
 
 Expected project edits:
@@ -397,8 +456,8 @@ Expected project edits:
 Expected run artifacts:
 
 ```text
-.daiag/runs/bootstrap/20260413-123000/workflow_composer/blueprint.md
-.daiag/runs/bootstrap/20260413-123000/workflow_author_from_blueprint/summary.md
+.daiag/runs/bootstrap/20260413-123000-123456789Z/planner/blueprint.md
+.daiag/runs/bootstrap/20260413-123000-123456789Z/author/summary.md
 ```
 
 ## Implementation Plan
@@ -407,29 +466,21 @@ Expected run artifacts:
    `--workflows-lib`.
 2. Add `--workflow` support to `bootstrap`, defaulting to
    `workflow_bootstrapper`.
-3. Remove `--workdir` from `run` usage and parsing.
-4. Add `--input` support to `validate`.
-5. Change runtime inputs and executor requests from `Workdir` to `ProjectDir`
+3. Add `--description-file` support to `bootstrap`.
+4. Remove `--workdir` and `--param` from `run` usage and parsing.
+5. Add `--input` support to `validate`.
+6. Change runtime inputs and executor requests from `Workdir` to `ProjectDir`
    and `RunDir`.
-6. Resolve relative artifacts against `RunDir`.
-7. Run executors from `ProjectDir`.
-8. Add `RunResult` with top-level workflow outputs.
-9. Change `projectdir()` to use the CLI project directory.
-10. Replace `workdir()` with `run_dir()` in the DSL and docs.
-11. Add or update the default bootstrap workflow.
-12. Ensure bootstrap workflows return `workflow_id` so validation does not have
+7. Resolve relative artifacts against `RunDir`.
+8. Run executors from `ProjectDir`.
+9. Add `RunResult` with top-level workflow outputs.
+10. Change `projectdir()` to use the CLI project directory.
+11. Replace `workdir()` with `run_dir()` in the DSL and docs.
+12. Add or update the default bootstrap workflow.
+13. Ensure bootstrap workflows return `workflow_id` so validation does not have
     to infer the ID from a path.
-13. Update bootstrap authoring workflows so prompt write paths use
+14. Update bootstrap authoring workflows so prompt write paths use
     `run_dir()`-rooted values or `path_ref(...)` values.
-14. Add `.daiag/runs/` to `.gitignore`.
-15. Add tests for path defaults, relative path resolution, artifact resolution,
+15. Add `.daiag/runs/` to `.gitignore`.
+16. Add tests for path defaults, relative path resolution, artifact resolution,
     executor CWD, bootstrap validation, and validate inputs.
-
-## Open Questions
-
-- Should `run-dir` outside `projectdir` be supported later by adding executor
-  writable roots?
-- Should `daiag bootstrap` accept `--description-file` in the first version or
-  wait until the simple `--description` flow works?
-- Should `daiag run` print top-level workflow outputs by default, or only with a
-  machine-readable output flag?
