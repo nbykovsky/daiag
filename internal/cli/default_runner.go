@@ -74,13 +74,15 @@ func (r workflowRunner) Run(ctx context.Context, cfg RunConfig) error {
 		Logger: logger,
 	}
 
-	return engine.Run(ctx, runtime.RunInput{
+	_, err = engine.Run(ctx, runtime.RunInput{
 		Workflow:     wf,
 		WorkflowPath: workflowPath,
 		BaseDir:      workflowsLib,
-		Workdir:      workdir,
+		ProjectDir:   workdir,
+		RunDir:       workdir,
 		Inputs:       anyInputs(inputs),
 	})
+	return err
 }
 
 func resolveWorkflowsLib(path string) (string, error) {

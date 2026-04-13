@@ -140,15 +140,26 @@ func (i *inputValue) String() string {
 	return fmt.Sprintf("input(%q)", i.ref.Name)
 }
 
-type workdirValue struct{}
+type runDirValue struct{}
 
-func (*workdirValue) Type() string          { return "workdir" }
-func (*workdirValue) Freeze()               {}
-func (*workdirValue) Truth() starlark.Bool  { return starlark.True }
-func (*workdirValue) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: workdir") }
+func (*runDirValue) Type() string          { return "run_dir" }
+func (*runDirValue) Freeze()               {}
+func (*runDirValue) Truth() starlark.Bool  { return starlark.True }
+func (*runDirValue) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: run_dir") }
 
-func (*workdirValue) String() string {
-	return "workdir()"
+func (*runDirValue) String() string {
+	return "run_dir()"
+}
+
+type projectDirValue struct{}
+
+func (*projectDirValue) Type() string          { return "projectdir" }
+func (*projectDirValue) Freeze()               {}
+func (*projectDirValue) Truth() starlark.Bool  { return starlark.True }
+func (*projectDirValue) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: projectdir") }
+
+func (*projectDirValue) String() string {
+	return "projectdir()"
 }
 
 type promptTemplateValue struct {
@@ -214,8 +225,10 @@ func exprString(expr workflow.ValueExpr) string {
 		return fmt.Sprintf("loop_iter(%q)", e.LoopID)
 	case workflow.InputRef:
 		return fmt.Sprintf("input(%q)", e.Name)
-	case workflow.WorkdirRef:
-		return "workdir()"
+	case workflow.RunDirRef:
+		return "run_dir()"
+	case workflow.ProjectDirRef:
+		return "projectdir()"
 	case workflow.FormatExpr:
 		return fmt.Sprintf("format(%q)", e.Template)
 	default:

@@ -41,11 +41,11 @@ func (e Executor) Run(ctx context.Context, req runtime.TaskRequest) (runtime.Tas
 			"--full-auto",
 			"--color", "never",
 			"--model", req.Model,
-			"-C", req.Workdir,
+			"-C", req.ProjectDir,
 			"--output-last-message", outputPath,
 			"-",
 		},
-		Dir:   req.Workdir,
+		Dir:   req.ProjectDir,
 		Stdin: req.Prompt,
 	}
 

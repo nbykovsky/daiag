@@ -29,9 +29,9 @@ func TestExecutorRunBuildsClaudeCommand(t *testing.T) {
 
 	exec := Executor{Runner: runner, CommandName: "claude"}
 	resp, err := exec.Run(context.Background(), runtime.TaskRequest{
-		Model:   "sonnet",
-		Prompt:  "Return JSON only.",
-		Workdir: "/tmp/work",
+		Model:      "sonnet",
+		Prompt:     "Return JSON only.",
+		ProjectDir: "/tmp/work",
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)

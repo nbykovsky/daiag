@@ -26,9 +26,9 @@ func (e Executor) Run(ctx context.Context, req runtime.TaskRequest) (runtime.Tas
 			"--print",
 			"--model", req.Model,
 			"--permission-mode", "bypassPermissions",
-			"--add-dir", req.Workdir,
+			"--add-dir", req.ProjectDir,
 		},
-		Dir:   req.Workdir,
+		Dir:   req.ProjectDir,
 		Stdin: req.Prompt,
 	}
 

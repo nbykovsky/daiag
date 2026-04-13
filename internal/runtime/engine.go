@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"daiag/internal/logging"
@@ -24,7 +25,8 @@ type TaskRequest struct {
 	TaskID     string
 	Prompt     string
 	Model      string
-	Workdir    string
+	ProjectDir string
+	RunDir     string
 }
 
 type TaskResponse struct {
@@ -37,8 +39,18 @@ type RunInput struct {
 	Workflow     *workflow.Workflow
 	WorkflowPath string
 	BaseDir      string
-	Workdir      string
+	ProjectDir   string
+	RunDir       string
 	Inputs       map[string]any
+}
+
+type RunResult struct {
+	EntryWorkflowID   string
+	EntryWorkflowPath string
+	ProjectDir        string
+	RunDir            string
+	OutputArtifacts   map[string]string
+	OutputResults     map[string]any
 }
 
 type Engine struct {
@@ -47,24 +59,35 @@ type Engine struct {
 }
 
 type state struct {
-	artifacts map[string]map[string]string
-	results   map[string]map[string]any
-	loops     map[string]int
-	inputs    map[string]any
-	workdir   string
+	artifacts  map[string]map[string]string
+	results    map[string]map[string]any
+	loops      map[string]int
+	inputs     map[string]any
+	projectDir string
+	runDir     string
 }
 
-func (e Engine) Run(ctx context.Context, input RunInput) error {
+func (e Engine) Run(ctx context.Context, input RunInput) (*RunResult, error) {
 	if input.Workflow == nil {
-		return fmt.Errorf("workflow is nil")
+		return nil, fmt.Errorf("workflow is nil")
+	}
+	var err error
+	input.ProjectDir, err = cleanExistingDir(input.ProjectDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve project dir: %w", err)
+	}
+	input.RunDir, err = cleanExistingDir(input.RunDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve run dir: %w", err)
 	}
 
 	st := &state{
-		artifacts: make(map[string]map[string]string),
-		results:   make(map[string]map[string]any),
-		loops:     make(map[string]int),
-		inputs:    cloneAnyMap(input.Inputs),
-		workdir:   input.Workdir,
+		artifacts:  make(map[string]map[string]string),
+		results:    make(map[string]map[string]any),
+		loops:      make(map[string]int),
+		inputs:     cloneAnyMap(input.Inputs),
+		projectDir: input.ProjectDir,
+		runDir:     input.RunDir,
 	}
 
 	if e.Logger != nil {
@@ -76,14 +99,22 @@ func (e Engine) Run(ctx context.Context, input RunInput) error {
 			stepID, _ := errStepID(err)
 			e.Logger.WorkflowFailed(input.Workflow.ID, stepID, err)
 		}
-		return err
+		return nil, err
+	}
+
+	result, err := e.runResult(input, st)
+	if err != nil {
+		if e.Logger != nil {
+			e.Logger.WorkflowFailed(input.Workflow.ID, "", err)
+		}
+		return nil, err
 	}
 
 	if e.Logger != nil {
 		e.Logger.WorkflowDone(input.Workflow.ID)
 	}
 
-	return nil
+	return result, nil
 }
 
 func (e Engine) runNodes(ctx context.Context, input RunInput, st *state, nodes []workflow.Node) error {
@@ -137,7 +168,8 @@ func (e Engine) runTask(ctx context.Context, input RunInput, st *state, task *wo
 		TaskID:     task.ID,
 		Prompt:     prompt,
 		Model:      executorConfig.Model,
-		Workdir:    input.Workdir,
+		ProjectDir: input.ProjectDir,
+		RunDir:     input.RunDir,
 	})
 	if err != nil {
 		return stepError{StepID: task.ID, Err: err}
@@ -154,11 +186,12 @@ func (e Engine) runTask(ctx context.Context, input RunInput, st *state, task *wo
 	artifacts := make(map[string]string, len(task.Artifacts))
 	artifactKeys := make([]string, 0, len(task.Artifacts))
 	for key, expr := range task.Artifacts {
-		path, err := resolveArtifactPath(input.Workdir, expr, st)
+		path, root, err := resolveArtifactPath(input, expr, st)
 		if err != nil {
 			return stepError{StepID: task.ID, Err: fmt.Errorf("resolve artifact %q: %w", key, err)}
 		}
-		if err := ensureFileExists(input.Workdir, path); err != nil {
+		path, err = ensureArtifactFile(root, path)
+		if err != nil {
 			return stepError{StepID: task.ID, Err: fmt.Errorf("artifact %q: %w", key, err)}
 		}
 		artifacts[key] = path
@@ -193,17 +226,19 @@ func (e Engine) runSubworkflow(ctx context.Context, input RunInput, st *state, s
 	}
 
 	childState := &state{
-		artifacts: make(map[string]map[string]string),
-		results:   make(map[string]map[string]any),
-		loops:     make(map[string]int),
-		inputs:    childInputs,
-		workdir:   input.Workdir,
+		artifacts:  make(map[string]map[string]string),
+		results:    make(map[string]map[string]any),
+		loops:      make(map[string]int),
+		inputs:     childInputs,
+		projectDir: input.ProjectDir,
+		runDir:     input.RunDir,
 	}
 	childInput := RunInput{
 		Workflow:     sub.Workflow,
 		WorkflowPath: sub.WorkflowPath,
 		BaseDir:      input.BaseDir,
-		Workdir:      input.Workdir,
+		ProjectDir:   input.ProjectDir,
+		RunDir:       input.RunDir,
 		Inputs:       childInputs,
 	}
 	if err := e.runNodes(ctx, childInput, childState, sub.Workflow.Steps); err != nil {
@@ -213,9 +248,13 @@ func (e Engine) runSubworkflow(ctx context.Context, input RunInput, st *state, s
 	outputArtifacts := make(map[string]string, len(sub.Workflow.OutputArtifacts))
 	outputArtifactKeys := make([]string, 0, len(sub.Workflow.OutputArtifacts))
 	for key, expr := range sub.Workflow.OutputArtifacts {
-		value, err := resolveArtifactPath(input.Workdir, expr, childState)
+		value, root, err := resolveArtifactPath(input, expr, childState)
 		if err != nil {
 			return e.failSubworkflow(sub.ID, stepError{StepID: sub.ID, Err: fmt.Errorf("resolve output artifact %q: %w", key, err)})
+		}
+		value, err = finalizeOutputArtifact(root, value)
+		if err != nil {
+			return e.failSubworkflow(sub.ID, stepError{StepID: sub.ID, Err: fmt.Errorf("output artifact %q: %w", key, err)})
 		}
 		outputArtifacts[key] = value
 		outputArtifactKeys = append(outputArtifactKeys, key)
@@ -407,19 +446,27 @@ func extractJSONObject(stdout string) (map[string]any, bool, error) {
 	return nil, false, nil
 }
 
-func ensureFileExists(workdir, path string) error {
-	checkPath := path
-	if !filepath.IsAbs(checkPath) {
-		checkPath = filepath.Join(workdir, checkPath)
-	}
-	info, err := os.Stat(checkPath)
+func ensureArtifactFile(root, path string) (string, error) {
+	info, err := os.Stat(path)
 	if err != nil {
-		return fmt.Errorf("expected file %q: %w", path, err)
+		return "", fmt.Errorf("expected file %q: %w", path, err)
 	}
 	if info.IsDir() {
-		return fmt.Errorf("expected file %q, got directory", path)
+		return "", fmt.Errorf("expected file %q, got directory", path)
 	}
-	return nil
+
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve artifact root %q: %w", root, err)
+	}
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve artifact path %q: %w", path, err)
+	}
+	if !pathWithin(resolvedRoot, resolvedPath) {
+		return "", fmt.Errorf("artifact path %q resolves outside %q", path, root)
+	}
+	return filepath.Clean(resolvedPath), nil
 }
 
 func resolveStringExpr(expr workflow.StringExpr, st *state) (string, error) {
@@ -444,8 +491,10 @@ func resolveStringExpr(expr workflow.StringExpr, st *state) (string, error) {
 			return "", fmt.Errorf("missing input %q", e.Name)
 		}
 		return fmt.Sprint(value), nil
-	case workflow.WorkdirRef:
-		return st.workdir, nil
+	case workflow.RunDirRef:
+		return st.runDir, nil
+	case workflow.ProjectDirRef:
+		return st.projectDir, nil
 	default:
 		return "", fmt.Errorf("unsupported string expression type %T", expr)
 	}
@@ -483,7 +532,9 @@ func resolveValueExpr(expr workflow.ValueExpr, st *state) (any, error) {
 			return nil, fmt.Errorf("missing input %q", e.Name)
 		}
 		return value, nil
-	case workflow.WorkdirRef:
+	case workflow.RunDirRef:
+		return resolveStringExpr(e, st)
+	case workflow.ProjectDirRef:
 		return resolveStringExpr(e, st)
 	default:
 		return nil, fmt.Errorf("unsupported value expression type %T", expr)
@@ -532,15 +583,150 @@ func renderFormatExpr(expr workflow.FormatExpr, st *state) (string, error) {
 	return rendered.String(), nil
 }
 
-func resolveArtifactPath(workdir string, expr workflow.StringExpr, st *state) (string, error) {
+func resolveArtifactPath(input RunInput, expr workflow.StringExpr, st *state) (string, string, error) {
 	path, err := resolveStringExpr(expr, st)
+	if err != nil {
+		return "", "", err
+	}
+	if path == "" {
+		return "", "", fmt.Errorf("path must not be empty")
+	}
+	if filepath.IsAbs(path) {
+		cleaned, err := cleanAbsPath(path)
+		if err != nil {
+			return "", "", err
+		}
+		if input.ProjectDir != "" && !pathWithin(input.ProjectDir, cleaned) {
+			return "", "", fmt.Errorf("absolute artifact path %q is outside project dir %q", cleaned, input.ProjectDir)
+		}
+		return cleaned, input.ProjectDir, nil
+	}
+	if input.RunDir == "" {
+		return "", "", fmt.Errorf("run dir is required for relative artifact path %q", path)
+	}
+	rel := filepath.Clean(path)
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", "", fmt.Errorf("relative artifact path %q escapes run dir %q", path, input.RunDir)
+	}
+	resolved, err := cleanAbsPath(filepath.Join(input.RunDir, rel))
+	if err != nil {
+		return "", "", err
+	}
+	if !pathWithin(input.RunDir, resolved) {
+		return "", "", fmt.Errorf("relative artifact path %q escapes run dir %q", path, input.RunDir)
+	}
+	return resolved, input.RunDir, nil
+}
+
+func (e Engine) runResult(input RunInput, st *state) (*RunResult, error) {
+	outputArtifacts := make(map[string]string, len(input.Workflow.OutputArtifacts))
+	for _, key := range sortedStringExprKeys(input.Workflow.OutputArtifacts) {
+		expr := input.Workflow.OutputArtifacts[key]
+		value, root, err := resolveArtifactPath(input, expr, st)
+		if err != nil {
+			return nil, fmt.Errorf("resolve output artifact %q: %w", key, err)
+		}
+		value, err = finalizeOutputArtifact(root, value)
+		if err != nil {
+			return nil, fmt.Errorf("output artifact %q: %w", key, err)
+		}
+		outputArtifacts[key] = value
+	}
+
+	outputResults := make(map[string]any, len(input.Workflow.OutputResults))
+	for _, key := range sortedValueExprKeys(input.Workflow.OutputResults) {
+		expr := input.Workflow.OutputResults[key]
+		value, err := resolveValueExpr(expr, st)
+		if err != nil {
+			return nil, fmt.Errorf("resolve output result %q: %w", key, err)
+		}
+		outputResults[key] = value
+	}
+
+	return &RunResult{
+		EntryWorkflowID:   input.Workflow.ID,
+		EntryWorkflowPath: input.WorkflowPath,
+		ProjectDir:        input.ProjectDir,
+		RunDir:            input.RunDir,
+		OutputArtifacts:   outputArtifacts,
+		OutputResults:     outputResults,
+	}, nil
+}
+
+func sortedStringExprKeys(values map[string]workflow.StringExpr) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedValueExprKeys(values map[string]workflow.ValueExpr) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func cleanAbsPath(path string) (string, error) {
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path), nil
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve path %q: %w", path, err)
+	}
+	return filepath.Clean(absPath), nil
+}
+
+func cleanExistingDir(path string) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+	absPath, err := cleanAbsPath(path)
 	if err != nil {
 		return "", err
 	}
-	if filepath.IsAbs(path) {
-		return path, nil
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return "", err
 	}
-	return filepath.Join(workdir, path), nil
+	if !info.IsDir() {
+		return "", fmt.Errorf("%q is not a directory", absPath)
+	}
+	resolved, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(resolved), nil
+}
+
+func finalizeOutputArtifact(root, path string) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return path, nil
+		}
+		return "", fmt.Errorf("stat output artifact %q: %w", path, err)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("expected file %q, got directory", path)
+	}
+	return ensureArtifactFile(root, path)
+}
+
+func pathWithin(root, path string) bool {
+	if root == "" {
+		return false
+	}
+	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(path))
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)))
 }
 
 func evalPredicate(predicate workflow.Predicate, st *state) (bool, error) {

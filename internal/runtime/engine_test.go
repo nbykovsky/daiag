@@ -95,11 +95,12 @@ func TestEngineRunWorkflowWithLoop(t *testing.T) {
 		},
 	}
 
-	err := engine.Run(context.Background(), RunInput{
+	_, err := engine.Run(context.Background(), RunInput{
 		Workflow:     wf,
 		WorkflowPath: "workflows/poem.star",
 		BaseDir:      baseDir,
-		Workdir:      baseDir,
+		ProjectDir:   baseDir,
+		RunDir:       baseDir,
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -191,10 +192,11 @@ func TestEngineResolvesWorkflowInputs(t *testing.T) {
 		},
 	}
 
-	err := engine.Run(context.Background(), RunInput{
-		Workflow: wf,
-		BaseDir:  baseDir,
-		Workdir:  baseDir,
+	_, err := engine.Run(context.Background(), RunInput{
+		Workflow:   wf,
+		BaseDir:    baseDir,
+		ProjectDir: baseDir,
+		RunDir:     baseDir,
 		Inputs: map[string]any{
 			"feature_dir": "docs/features/rain",
 			"spec_path":   "docs/features/rain/spec.md",
@@ -211,9 +213,20 @@ func TestEngineResolvesWorkflowInputs(t *testing.T) {
 	}
 }
 
-func TestEngineResolvesWorkdirExpressionAndStoresAbsoluteArtifactPaths(t *testing.T) {
+func TestEngineResolvesRunDirExpressionAndStoresAbsoluteArtifactPaths(t *testing.T) {
 	baseDir := t.TempDir()
-	workdir := t.TempDir()
+	canonicalProjectDir, err := filepath.EvalSymlinks(baseDir)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", baseDir, err)
+	}
+	runDir := filepath.Join(baseDir, ".daiag", "runs", "poem", "1")
+	if err := os.MkdirAll(runDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q): %v", runDir, err)
+	}
+	canonicalRunDir, err := filepath.EvalSymlinks(runDir)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", runDir, err)
+	}
 	writeFile(t, filepath.Join(baseDir, "agents", "write.md"), `out=${OUT_PATH}`)
 	writeFile(t, filepath.Join(baseDir, "agents", "consume.md"), `poem=${POEM_PATH}`)
 
@@ -221,15 +234,18 @@ func TestEngineResolvesWorkdirExpressionAndStoresAbsoluteArtifactPaths(t *testin
 	engine := Engine{
 		Executors: map[string]Executor{
 			"codex": fakeExecutorFunc(func(_ context.Context, req TaskRequest) (TaskResponse, error) {
-				if req.Workdir != workdir {
-					return TaskResponse{}, fmt.Errorf("Workdir = %q, want %q", req.Workdir, workdir)
+				if req.ProjectDir != canonicalProjectDir {
+					return TaskResponse{}, fmt.Errorf("ProjectDir = %q, want %q", req.ProjectDir, canonicalProjectDir)
+				}
+				if req.RunDir != canonicalRunDir {
+					return TaskResponse{}, fmt.Errorf("RunDir = %q, want %q", req.RunDir, canonicalRunDir)
 				}
 				prompts[req.TaskID] = req.Prompt
 				switch req.TaskID {
 				case "write_poem":
-					writeFile(t, filepath.Join(workdir, "docs", "poem.md"), "one\n")
+					writeFile(t, filepath.Join(runDir, "docs", "poem.md"), "one\n")
 				case "consume_poem":
-					writeFile(t, filepath.Join(workdir, "docs", "summary.md"), "summary\n")
+					writeFile(t, filepath.Join(runDir, "docs", "summary.md"), "summary\n")
 				default:
 					return TaskResponse{}, fmt.Errorf("unexpected task %q", req.TaskID)
 				}
@@ -248,9 +264,9 @@ func TestEngineResolvesWorkdirExpressionAndStoresAbsoluteArtifactPaths(t *testin
 					TemplatePath: "agents/write.md",
 					Vars: map[string]workflow.StringExpr{
 						"OUT_PATH": workflow.FormatExpr{
-							Template: "{workdir}/explicit.md",
+							Template: "{run_dir}/explicit.md",
 							Args: map[string]workflow.ValueExpr{
-								"workdir": workflow.WorkdirRef{},
+								"run_dir": workflow.RunDirRef{},
 							},
 						},
 					},
@@ -272,14 +288,137 @@ func TestEngineResolvesWorkdirExpressionAndStoresAbsoluteArtifactPaths(t *testin
 		},
 	}
 
-	if err := engine.Run(context.Background(), RunInput{Workflow: wf, BaseDir: baseDir, Workdir: workdir}); err != nil {
+	if _, err := engine.Run(context.Background(), RunInput{
+		Workflow:   wf,
+		BaseDir:    baseDir,
+		ProjectDir: baseDir,
+		RunDir:     runDir,
+	}); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if got, want := prompts["write_poem"], "out="+filepath.Join(workdir, "explicit.md"); got != want {
+	if got, want := prompts["write_poem"], "out="+filepath.Join(canonicalRunDir, "explicit.md"); got != want {
 		t.Fatalf("write prompt = %q, want %q", got, want)
 	}
-	if got, want := prompts["consume_poem"], "poem="+filepath.Join(workdir, "docs", "poem.md"); got != want {
+	if got, want := prompts["consume_poem"], "poem="+filepath.Join(canonicalRunDir, "docs", "poem.md"); got != want {
 		t.Fatalf("consume prompt = %q, want %q", got, want)
+	}
+}
+
+func TestEngineReturnsWorkflowOutputs(t *testing.T) {
+	projectDir := t.TempDir()
+	runDir := filepath.Join(projectDir, ".daiag", "runs", "report", "1")
+	if err := os.MkdirAll(runDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q): %v", runDir, err)
+	}
+	canonicalProjectDir, err := filepath.EvalSymlinks(projectDir)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", projectDir, err)
+	}
+	canonicalRunDir, err := filepath.EvalSymlinks(runDir)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", runDir, err)
+	}
+
+	engine := Engine{
+		Executors: map[string]Executor{
+			"codex": fakeExecutorFunc(func(_ context.Context, req TaskRequest) (TaskResponse, error) {
+				if req.ProjectDir != canonicalProjectDir {
+					return TaskResponse{}, fmt.Errorf("ProjectDir = %q, want %q", req.ProjectDir, canonicalProjectDir)
+				}
+				if req.RunDir != canonicalRunDir {
+					return TaskResponse{}, fmt.Errorf("RunDir = %q, want %q", req.RunDir, canonicalRunDir)
+				}
+				writeFile(t, filepath.Join(runDir, "out", "report.md"), "report\n")
+				return TaskResponse{Stdout: `{"status":"complete","count":2}`, ExitCode: 0}, nil
+			}),
+		},
+	}
+
+	wf := &workflow.Workflow{
+		ID:              "report",
+		DefaultExecutor: &workflow.ExecutorConfig{CLI: "codex", Model: "gpt-5.4"},
+		Steps: []workflow.Node{
+			&workflow.Task{
+				ID:         "write_report",
+				Prompt:     workflow.Prompt{Inline: "write"},
+				Artifacts:  map[string]workflow.StringExpr{"report": workflow.Literal{Value: "out/report.md"}},
+				ResultKeys: []string{"status", "count"},
+			},
+		},
+		OutputArtifacts: map[string]workflow.StringExpr{
+			"report": workflow.PathRef{StepID: "write_report", ArtifactKey: "report"},
+		},
+		OutputResults: map[string]workflow.ValueExpr{
+			"status": workflow.JSONRef{StepID: "write_report", Field: "status"},
+			"count":  workflow.JSONRef{StepID: "write_report", Field: "count"},
+		},
+	}
+
+	result, err := engine.Run(context.Background(), RunInput{
+		Workflow:     wf,
+		WorkflowPath: "workflows/report/workflow.star",
+		BaseDir:      projectDir,
+		ProjectDir:   projectDir,
+		RunDir:       runDir,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.EntryWorkflowID != "report" {
+		t.Fatalf("EntryWorkflowID = %q, want report", result.EntryWorkflowID)
+	}
+	if result.ProjectDir != canonicalProjectDir {
+		t.Fatalf("ProjectDir = %q, want %q", result.ProjectDir, canonicalProjectDir)
+	}
+	if result.RunDir != canonicalRunDir {
+		t.Fatalf("RunDir = %q, want %q", result.RunDir, canonicalRunDir)
+	}
+	if got, want := result.OutputArtifacts["report"], filepath.Join(canonicalRunDir, "out", "report.md"); got != want {
+		t.Fatalf("OutputArtifacts[report] = %q, want %q", got, want)
+	}
+	if got := result.OutputResults["status"]; got != "complete" {
+		t.Fatalf("OutputResults[status] = %#v, want complete", got)
+	}
+	if got := result.OutputResults["count"]; got != float64(2) {
+		t.Fatalf("OutputResults[count] = %#v, want 2", got)
+	}
+}
+
+func TestEngineRejectsRelativeArtifactEscapingRunDir(t *testing.T) {
+	projectDir := t.TempDir()
+	runDir := filepath.Join(projectDir, ".daiag", "runs", "escape", "1")
+	if err := os.MkdirAll(runDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q): %v", runDir, err)
+	}
+
+	engine := Engine{
+		Executors: map[string]Executor{
+			"codex": fakeExecutorFunc(func(_ context.Context, _ TaskRequest) (TaskResponse, error) {
+				return TaskResponse{Stdout: `{"ok":true}`, ExitCode: 0}, nil
+			}),
+		},
+	}
+	wf := &workflow.Workflow{
+		ID:              "escape",
+		DefaultExecutor: &workflow.ExecutorConfig{CLI: "codex", Model: "gpt-5.4"},
+		Steps: []workflow.Node{
+			&workflow.Task{
+				ID:         "write",
+				Prompt:     workflow.Prompt{Inline: "write"},
+				Artifacts:  map[string]workflow.StringExpr{"bad": workflow.Literal{Value: "../escape.md"}},
+				ResultKeys: []string{"ok"},
+			},
+		},
+	}
+
+	_, err := engine.Run(context.Background(), RunInput{
+		Workflow:   wf,
+		BaseDir:    projectDir,
+		ProjectDir: projectDir,
+		RunDir:     runDir,
+	})
+	if err == nil || !strings.Contains(err.Error(), "escapes run dir") {
+		t.Fatalf("Run() error = %v, want run dir escape error", err)
 	}
 }
 
@@ -339,7 +478,8 @@ func TestEngineRunsWhenStepsWhenConditionTrue(t *testing.T) {
 		},
 	}
 
-	if err := engine.Run(context.Background(), RunInput{Workflow: wf, BaseDir: baseDir, Workdir: baseDir}); err != nil {
+	if _, err := engine.Run(context.Background(), RunInput{Workflow: wf, BaseDir: baseDir, ProjectDir: baseDir,
+		RunDir: baseDir}); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
 	if got, want := strings.Join(calls, ","), "triage,repair_code"; got != want {
@@ -406,7 +546,8 @@ func TestEngineRunsWhenElseStepsWhenConditionFalse(t *testing.T) {
 		},
 	}
 
-	if err := engine.Run(context.Background(), RunInput{Workflow: wf, BaseDir: baseDir, Workdir: baseDir}); err != nil {
+	if _, err := engine.Run(context.Background(), RunInput{Workflow: wf, BaseDir: baseDir, ProjectDir: baseDir,
+		RunDir: baseDir}); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
 	if got, want := strings.Join(calls, ","), "triage,record_no_repair_needed"; got != want {
@@ -471,7 +612,8 @@ func TestEngineSkipsWhenWithoutElseStepsWhenConditionFalse(t *testing.T) {
 		},
 	}
 
-	if err := engine.Run(context.Background(), RunInput{Workflow: wf, BaseDir: baseDir, Workdir: baseDir}); err != nil {
+	if _, err := engine.Run(context.Background(), RunInput{Workflow: wf, BaseDir: baseDir, ProjectDir: baseDir,
+		RunDir: baseDir}); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
 	if got, want := strings.Join(calls, ","), "triage,after"; got != want {
@@ -554,7 +696,8 @@ func TestEngineEvaluatesWhenOnEachRepeatUntilIteration(t *testing.T) {
 		},
 	}
 
-	if err := engine.Run(context.Background(), RunInput{Workflow: wf, BaseDir: baseDir, Workdir: baseDir}); err != nil {
+	if _, err := engine.Run(context.Background(), RunInput{Workflow: wf, BaseDir: baseDir, ProjectDir: baseDir,
+		RunDir: baseDir}); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
 	if got, want := strings.Join(calls, ","), "check,repair_code,check,record_clean"; got != want {
@@ -576,7 +719,7 @@ func TestEngineAttributesWhenConditionEvaluationFailureToWhenID(t *testing.T) {
 		},
 	}
 
-	err := (Engine{}).Run(context.Background(), RunInput{Workflow: wf})
+	_, err := (Engine{}).Run(context.Background(), RunInput{Workflow: wf})
 	if err == nil || !strings.Contains(err.Error(), `step gate: missing result for step "missing"`) {
 		t.Fatalf("Run() error = %v, want when step error", err)
 	}
@@ -588,6 +731,10 @@ func TestEngineAttributesWhenConditionEvaluationFailureToWhenID(t *testing.T) {
 
 func TestEngineRunsSubworkflowAndExposesOutputs(t *testing.T) {
 	baseDir := t.TempDir()
+	canonicalBaseDir, err := filepath.EvalSymlinks(baseDir)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", baseDir, err)
+	}
 	writeFile(t, filepath.Join(baseDir, "agents", "child.md"), `literal=${LITERAL} source=${SOURCE_PATH} status=${STATUS}`)
 	writeFile(t, filepath.Join(baseDir, "agents", "consume.md"), `child=${CHILD_PATH} source=${SOURCE_PATH}`)
 
@@ -684,10 +831,11 @@ func TestEngineRunsSubworkflowAndExposesOutputs(t *testing.T) {
 		},
 	}
 
-	err := engine.Run(context.Background(), RunInput{
-		Workflow: parent,
-		BaseDir:  baseDir,
-		Workdir:  baseDir,
+	_, err = engine.Run(context.Background(), RunInput{
+		Workflow:   parent,
+		BaseDir:    baseDir,
+		ProjectDir: baseDir,
+		RunDir:     baseDir,
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -695,7 +843,7 @@ func TestEngineRunsSubworkflowAndExposesOutputs(t *testing.T) {
 	childPrompt := prompts["child.child_write"]
 	for _, want := range []string{
 		"literal=literal-value",
-		"source=" + filepath.Join(baseDir, "docs", "source.md"),
+		"source=" + filepath.Join(canonicalBaseDir, "docs", "source.md"),
 		"status=ready",
 	} {
 		if !strings.Contains(childPrompt, want) {
@@ -704,8 +852,8 @@ func TestEngineRunsSubworkflowAndExposesOutputs(t *testing.T) {
 	}
 	parentPrompt := prompts["parent.consume"]
 	for _, want := range []string{
-		"child=" + filepath.Join(baseDir, "docs", "child.md"),
-		"source=" + filepath.Join(baseDir, "docs", "source.md"),
+		"child=" + filepath.Join(canonicalBaseDir, "docs", "child.md"),
+		"source=" + filepath.Join(canonicalBaseDir, "docs", "source.md"),
 	} {
 		if !strings.Contains(parentPrompt, want) {
 			t.Fatalf("parent prompt = %q, want %q", parentPrompt, want)
@@ -765,10 +913,11 @@ func TestEngineDoesNotLeakSubworkflowInternalState(t *testing.T) {
 		},
 	}
 
-	err := engine.Run(context.Background(), RunInput{
-		Workflow: parent,
-		BaseDir:  baseDir,
-		Workdir:  baseDir,
+	_, err := engine.Run(context.Background(), RunInput{
+		Workflow:   parent,
+		BaseDir:    baseDir,
+		ProjectDir: baseDir,
+		RunDir:     baseDir,
 	})
 	if err == nil || !strings.Contains(err.Error(), `missing artifacts for step "child_write"`) {
 		t.Fatalf("Run() error = %v, want missing child internal artifact", err)
@@ -868,10 +1017,11 @@ func TestEngineSubworkflowInLoopUsesLatestOutput(t *testing.T) {
 		},
 	}
 
-	err := engine.Run(context.Background(), RunInput{
-		Workflow: parent,
-		BaseDir:  baseDir,
-		Workdir:  baseDir,
+	_, err := engine.Run(context.Background(), RunInput{
+		Workflow:   parent,
+		BaseDir:    baseDir,
+		ProjectDir: baseDir,
+		RunDir:     baseDir,
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -931,7 +1081,8 @@ func TestEngineLogsSubworkflowStartAndDone(t *testing.T) {
 		},
 	}
 
-	if err := engine.Run(context.Background(), RunInput{Workflow: parent, BaseDir: baseDir, Workdir: baseDir}); err != nil {
+	if _, err := engine.Run(context.Background(), RunInput{Workflow: parent, BaseDir: baseDir, ProjectDir: baseDir,
+		RunDir: baseDir}); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
 
@@ -981,7 +1132,8 @@ func TestEngineQualifiesSingleLevelSubworkflowFailure(t *testing.T) {
 		},
 	}
 
-	err := engine.Run(context.Background(), RunInput{Workflow: parent, BaseDir: baseDir, Workdir: baseDir})
+	_, err := engine.Run(context.Background(), RunInput{Workflow: parent, BaseDir: baseDir, ProjectDir: baseDir,
+		RunDir: baseDir})
 	if err == nil || !strings.Contains(err.Error(), `step spec.review_spec`) {
 		t.Fatalf("Run() error = %v, want qualified child step", err)
 	}
@@ -1034,7 +1186,8 @@ func TestEngineQualifiesNestedSubworkflowFailure(t *testing.T) {
 		},
 	}
 
-	err := engine.Run(context.Background(), RunInput{Workflow: parent, BaseDir: baseDir, Workdir: baseDir})
+	_, err := engine.Run(context.Background(), RunInput{Workflow: parent, BaseDir: baseDir, ProjectDir: baseDir,
+		RunDir: baseDir})
 	if err == nil || !strings.Contains(err.Error(), `step spec.refine.inner_task`) {
 		t.Fatalf("Run() error = %v, want recursively qualified child step", err)
 	}
@@ -1066,10 +1219,11 @@ func TestEngineFailsWhenArtifactMissing(t *testing.T) {
 		},
 	}
 
-	err := engine.Run(context.Background(), RunInput{
-		Workflow: wf,
-		BaseDir:  baseDir,
-		Workdir:  baseDir,
+	_, err := engine.Run(context.Background(), RunInput{
+		Workflow:   wf,
+		BaseDir:    baseDir,
+		ProjectDir: baseDir,
+		RunDir:     baseDir,
 	})
 	if err == nil || !strings.Contains(err.Error(), `artifact "poem"`) {
 		t.Fatalf("Run() error = %v, want artifact error", err)

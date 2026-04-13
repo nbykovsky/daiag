@@ -151,11 +151,17 @@ func (InputRef) valueExpr() {}
 
 func (InputRef) stringExpr() {}
 
-type WorkdirRef struct{}
+type RunDirRef struct{}
 
-func (WorkdirRef) valueExpr() {}
+func (RunDirRef) valueExpr() {}
 
-func (WorkdirRef) stringExpr() {}
+func (RunDirRef) stringExpr() {}
+
+type ProjectDirRef struct{}
+
+func (ProjectDirRef) valueExpr() {}
+
+func (ProjectDirRef) stringExpr() {}
 
 type FormatExpr struct {
 	Template string

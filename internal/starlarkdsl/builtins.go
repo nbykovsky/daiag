@@ -265,26 +265,18 @@ func (l Loader) builtinInput(_ *starlark.Thread, builtin *starlark.Builtin, args
 	return &inputValue{ref: workflow.InputRef{Name: name}}, nil
 }
 
-func (l Loader) builtinWorkdir(_ *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (l Loader) builtinRunDir(_ *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	if err := starlark.UnpackArgs(builtin.Name(), args, kwargs); err != nil {
 		return nil, err
 	}
-	return &workdirValue{}, nil
+	return &runDirValue{}, nil
 }
 
-func (l Loader) builtinProjectdir(thread *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (l Loader) builtinProjectdir(_ *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	if err := starlark.UnpackArgs(builtin.Name(), args, kwargs); err != nil {
 		return nil, err
 	}
-	modulePath, err := currentCallerModulePath(thread)
-	if err != nil {
-		return nil, err
-	}
-	projectDir, err := findProjectDir(modulePath)
-	if err != nil {
-		return nil, err
-	}
-	return starlark.String(projectDir), nil
+	return &projectDirValue{}, nil
 }
 
 func (l Loader) builtinTemplateFile(thread *starlark.Thread, builtin *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -605,10 +597,12 @@ func unpackStringExpr(value starlark.Value) (workflow.StringExpr, error) {
 		return v.ref, nil
 	case *inputValue:
 		return v.ref, nil
-	case *workdirValue:
-		return workflow.WorkdirRef{}, nil
+	case *runDirValue:
+		return workflow.RunDirRef{}, nil
+	case *projectDirValue:
+		return workflow.ProjectDirRef{}, nil
 	default:
-		return nil, fmt.Errorf("expected string, format, path_ref, input, or workdir, got %s", value.Type())
+		return nil, fmt.Errorf("expected string, format, path_ref, input, run_dir, or projectdir, got %s", value.Type())
 	}
 }
 
@@ -632,10 +626,12 @@ func unpackValueExpr(value starlark.Value) (workflow.ValueExpr, error) {
 		return v.ref, nil
 	case *inputValue:
 		return v.ref, nil
-	case *workdirValue:
-		return workflow.WorkdirRef{}, nil
+	case *runDirValue:
+		return workflow.RunDirRef{}, nil
+	case *projectDirValue:
+		return workflow.ProjectDirRef{}, nil
 	default:
-		return nil, fmt.Errorf("expected string, int, format, path_ref, json_ref, loop_iter, input, or workdir, got %s", value.Type())
+		return nil, fmt.Errorf("expected string, int, format, path_ref, json_ref, loop_iter, input, run_dir, or projectdir, got %s", value.Type())
 	}
 }
 

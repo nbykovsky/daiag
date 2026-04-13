@@ -110,7 +110,7 @@ func TestDefaultRunnerReportsMissingWorkflowInput(t *testing.T) {
 	if exitCode != 1 {
 		t.Fatalf("exit code = %d, want 1", exitCode)
 	}
-	if !strings.Contains(stderr.String(), `missing workflow input "name"`) {
+	if !strings.Contains(stderr.String(), `missing input "name"`) {
 		t.Fatalf("stderr = %q, want missing input error", stderr.String())
 	}
 }
@@ -289,7 +289,7 @@ func TestDefaultRunnerValidatesValidWorkflow(t *testing.T) {
 	}
 }
 
-func TestDefaultRunnerValidateRejectsMissingInput(t *testing.T) {
+func TestDefaultRunnerValidateAcceptsMissingInputValues(t *testing.T) {
 	workflowsLib := filepath.Join(t.TempDir(), "workflows")
 	writeCLITestWorkflow(t, workflowsLib)
 
@@ -302,11 +302,8 @@ func TestDefaultRunnerValidateRejectsMissingInput(t *testing.T) {
 		"--workflows-lib", workflowsLib,
 	})
 
-	if exitCode != 1 {
-		t.Fatalf("exit code = %d, want 1", exitCode)
-	}
-	if !strings.Contains(stderr.String(), `missing workflow input "name"`) {
-		t.Fatalf("stderr = %q, want missing input error", stderr.String())
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr=%q)", exitCode, stderr.String())
 	}
 }
 

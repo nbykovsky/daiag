@@ -37,9 +37,9 @@ func TestExecutorRunBuildsCodexCommand(t *testing.T) {
 
 	exec := Executor{Runner: runner, CommandName: "codex"}
 	resp, err := exec.Run(context.Background(), runtime.TaskRequest{
-		Model:   "gpt-5.4",
-		Prompt:  "Return JSON only.",
-		Workdir: "/tmp/work",
+		Model:      "gpt-5.4",
+		Prompt:     "Return JSON only.",
+		ProjectDir: "/tmp/work",
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)

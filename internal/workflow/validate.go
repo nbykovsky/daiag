@@ -19,10 +19,10 @@ type nodeInfo struct {
 }
 
 func (v Validator) Validate(wf *Workflow) error {
-	return v.validateWorkflow(wf, v.BaseDir, stringKeySetFromMap(v.Inputs))
+	return v.validateWorkflow(wf, v.BaseDir)
 }
 
-func (v Validator) validateWorkflow(wf *Workflow, templateBaseDir string, availableInputs map[string]struct{}) error {
+func (v Validator) validateWorkflow(wf *Workflow, templateBaseDir string) error {
 	if wf == nil {
 		return fmt.Errorf("workflow is nil")
 	}
@@ -33,11 +33,6 @@ func (v Validator) validateWorkflow(wf *Workflow, templateBaseDir string, availa
 	declaredInputs, err := v.validateInputs(wf.Inputs)
 	if err != nil {
 		return err
-	}
-	for name := range declaredInputs {
-		if _, ok := availableInputs[name]; !ok {
-			return fmt.Errorf("missing workflow input %q", name)
-		}
 	}
 
 	seenNodes := make(map[string]nodeInfo)
@@ -200,7 +195,7 @@ func (v Validator) validateSubworkflow(sub *Subworkflow, parentNodes map[string]
 	}
 
 	childInputs := stringKeySet(sub.Workflow.Inputs)
-	if err := v.validateWorkflow(sub.Workflow, v.BaseDir, childInputs); err != nil {
+	if err := v.validateWorkflow(sub.Workflow, v.BaseDir); err != nil {
 		return err
 	}
 
@@ -316,7 +311,9 @@ func validateStringExpr(expr StringExpr, seenNodes map[string]nodeInfo, activeLo
 			return fmt.Errorf("unknown workflow input %q", e.Name)
 		}
 		return nil
-	case WorkdirRef:
+	case RunDirRef:
+		return nil
+	case ProjectDirRef:
 		return nil
 	default:
 		return fmt.Errorf("unsupported string expression type %T", expr)
@@ -358,7 +355,9 @@ func validateValueExpr(expr ValueExpr, seenNodes map[string]nodeInfo, activeLoop
 		return nil
 	case InputRef:
 		return validateStringExpr(e, seenNodes, activeLoops, declaredInputs)
-	case WorkdirRef:
+	case RunDirRef:
+		return nil
+	case ProjectDirRef:
 		return nil
 	default:
 		return fmt.Errorf("unsupported value expression type %T", expr)
@@ -393,14 +392,6 @@ func stringKeySet(values []string) map[string]struct{} {
 	keys := make(map[string]struct{}, len(values))
 	for _, value := range values {
 		keys[value] = struct{}{}
-	}
-	return keys
-}
-
-func stringKeySetFromMap(values map[string]string) map[string]struct{} {
-	keys := make(map[string]struct{}, len(values))
-	for key := range values {
-		keys[key] = struct{}{}
 	}
 	return keys
 }

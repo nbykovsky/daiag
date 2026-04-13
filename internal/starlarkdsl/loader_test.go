@@ -327,12 +327,12 @@ wf = workflow(
 	}
 }
 
-func TestLoaderLoadsWorkdirExpression(t *testing.T) {
+func TestLoaderLoadsRunDirExpression(t *testing.T) {
 	baseDir := t.TempDir()
 	writeFile(t, filepath.Join(baseDir, "agents", "writer.md"), `Write "${POEM_PATH}".`)
 	workflowPath := filepath.Join(baseDir, "workflow.star")
 	writeFile(t, workflowPath, `
-poem_path = format("{workdir}/docs/poem.md", workdir = workdir())
+poem_path = format("{run_dir}/docs/poem.md", run_dir = run_dir())
 
 wf = workflow(
     id = "poem",
@@ -359,19 +359,16 @@ wf = workflow(
 	if !ok {
 		t.Fatalf("artifact poem = %T, want workflow.FormatExpr", task.Artifacts["poem"])
 	}
-	if _, ok := expr.Args["workdir"].(workflow.WorkdirRef); !ok {
-		t.Fatalf("format workdir arg = %T, want workflow.WorkdirRef", expr.Args["workdir"])
+	if _, ok := expr.Args["run_dir"].(workflow.RunDirRef); !ok {
+		t.Fatalf("format run_dir arg = %T, want workflow.RunDirRef", expr.Args["run_dir"])
 	}
 	if _, ok := wf.OutputArtifacts["poem"].(workflow.FormatExpr); !ok {
 		t.Fatalf("output artifact poem = %T, want workflow.FormatExpr", wf.OutputArtifacts["poem"])
 	}
 }
 
-func TestLoaderLoadsProjectdirFromCallingModule(t *testing.T) {
+func TestLoaderLoadsProjectdirExpression(t *testing.T) {
 	projectDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(projectDir, ".daiag"), 0o755); err != nil {
-		t.Fatalf("MkdirAll(.daiag): %v", err)
-	}
 	workflowDir := filepath.Join(projectDir, ".daiag", "workflows")
 	writeFile(t, filepath.Join(workflowDir, "agents", "writer.md"), `Write "${POEM_PATH}".`)
 	writeFile(t, filepath.Join(workflowDir, "lib", "paths.star"), `
@@ -408,16 +405,13 @@ wf = workflow(
 	if !ok {
 		t.Fatalf("artifact poem = %T, want workflow.FormatExpr", task.Artifacts["poem"])
 	}
-	project, ok := expr.Args["project"].(workflow.Literal)
+	_, ok = expr.Args["project"].(workflow.ProjectDirRef)
 	if !ok {
-		t.Fatalf("format project arg = %T, want workflow.Literal", expr.Args["project"])
-	}
-	if project.Value != projectDir {
-		t.Fatalf("projectdir() = %q, want %q", project.Value, projectDir)
+		t.Fatalf("format project arg = %T, want workflow.ProjectDirRef", expr.Args["project"])
 	}
 }
 
-func TestLoaderRejectsProjectdirOutsideProject(t *testing.T) {
+func TestLoaderAcceptsProjectdirWithoutDaiagAncestor(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")
 	writeFile(t, workflowPath, `
@@ -427,12 +421,8 @@ wf = workflow(id = "bad", steps = [])
 `)
 
 	loader := Loader{BaseDir: baseDir}
-	_, err := loader.Load(workflowPath)
-	if err == nil || !contains(err.Error(), `no .daiag directory found`) {
-		t.Fatalf("Load() error = %v, want projectdir error", err)
-	}
-	if !contains(err.Error(), `pass the project path as an explicit workflow input instead`) {
-		t.Fatalf("Load() error = %v, want explicit input suggestion", err)
+	if _, err := loader.Load(workflowPath); err != nil {
+		t.Fatalf("Load() error = %v", err)
 	}
 }
 
@@ -481,7 +471,7 @@ wf = workflow(
 	}
 }
 
-func TestLoaderRejectsMissingWorkflowInput(t *testing.T) {
+func TestLoaderAllowsMissingWorkflowInputValues(t *testing.T) {
 	baseDir := t.TempDir()
 	workflowPath := filepath.Join(baseDir, "workflow.star")
 	writeFile(t, workflowPath, `
@@ -493,9 +483,8 @@ wf = workflow(
 `)
 
 	loader := Loader{BaseDir: baseDir}
-	_, err := loader.Load(workflowPath)
-	if err == nil || !contains(err.Error(), `missing workflow input "name"`) {
-		t.Fatalf("Load() error = %v, want missing input error", err)
+	if _, err := loader.Load(workflowPath); err != nil {
+		t.Fatalf("Load() error = %v", err)
 	}
 }
 
