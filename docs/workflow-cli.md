@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document is the reference for the `daiag` command-line interface.
+This document describes the implemented `daiag` command-line interface.
 
 ## Synopsis
 
@@ -13,173 +13,177 @@ daiag <command> [flags]
 Commands:
 
 - `run` — execute a workflow
-- `validate` — parse and validate a workflow without executing it
+- `validate` — parse and validate a workflow without executing tasks
+- `bootstrap` — generate a workflow through a catalog bootstrap workflow
 - `help` — print usage
+
+## Path Model
+
+`daiag` separates three paths:
+
+- `projectdir` — editable project workspace and executor current directory
+- `run-dir` — root for declared run artifacts
+- `workflows-lib` — Starlark workflow library root
+
+Defaults:
+
+- `--projectdir` defaults to the nearest ancestor of the process current working directory that contains `.daiag/`.
+- `--workflows-lib` defaults to `<projectdir>/.daiag/workflows`.
+- `daiag run` defaults `--run-dir` to `.daiag/runs/<workflow-id>/<timestamp>` under `projectdir`.
+- `daiag bootstrap` defaults `--run-dir` to `.daiag/runs/bootstrap/<timestamp>` under `projectdir`.
+
+Default run directory timestamps use UTC in `YYYYMMDD-HHMMSS-NNNNNNNNNZ`
+format. If a generated directory already exists, the CLI appends a numeric
+suffix before retrying.
+
+Relative `--run-dir` and `--workflows-lib` values resolve from `projectdir`.
+Relative `--projectdir` and `--description-file` values resolve from the
+process current working directory.
+
+The CLI creates `run-dir` before execution. `run-dir` must be inside
+`projectdir`. `workflows-lib` must exist. `bootstrap` also requires
+`workflows-lib` to be inside `projectdir`.
 
 ## `daiag run`
 
 Loads and executes a workflow.
 
 ```sh
-daiag run --workflow <workflow-id> --workdir <path> [--workflows-lib <dir>] [--input key=value]... [--param key=value]... [--verbose]
+daiag run \
+  --workflow <workflow-id> \
+  [--projectdir <path>] \
+  [--run-dir <path>] \
+  [--workflows-lib <dir>] \
+  [--input key=value]... \
+  [--verbose]
 ```
 
-### Flags
+`--workflow` is required and must match `[A-Za-z0-9_-]+`. It resolves to
+`<workflows-lib>/<workflow-id>/workflow.star`.
 
-#### `--workflow <workflow-id>` (required)
+`--input key=value` may be repeated. `--param` and `--workdir` are not
+supported CLI flags.
 
-The workflow ID to run. Must match `[A-Za-z0-9_-]+`. Resolves to
-`<workflows-lib>/<id>/workflow.star` at load time.
+After a successful run, top-level workflow outputs are printed when present:
 
-Path-style values such as `./wf.star`, `../wf.star`, or `/abs/wf.star` are
-rejected.
-
-#### `--workdir <path>` (required)
-
-Path to the run output directory. Absolute or relative; relative paths are
-resolved from the process current working directory.
-
-- Created with `mkdir -p` before execution begins if it does not exist.
-- Shared across all subworkflows in the run.
-- Used as the executor CWD for every task.
-
-#### `--workflows-lib <dir>` (optional)
-
-Path to the workflows library directory.
-
-- Relative paths are resolved from the process current working directory.
-- When omitted, defaults to `<projectdir>/.daiag/workflows` where
-  `<projectdir>` is found by walking up from the process current working
-  directory until a `.daiag/` directory is found.
-- Fails at startup if supplied and the path does not exist or is not a
-  directory.
-- Fails if omitted and no `.daiag/` ancestor can be found.
-
-#### `--input key=value` (repeatable)
-
-Supplies a workflow input for `input(...)` builtins declared in
-`workflow(inputs = [...])`.
-
-May be repeated to supply multiple inputs:
-
-```sh
-daiag run --workflow feature-development --workdir /tmp/run \
-  --input name=indicators \
-  --input env=staging
+```text
+workflow outputs:
+artifact <key>: <absolute-path>
+result <key>: <json>
 ```
 
-#### `--param key=value` (repeatable)
+Artifact keys and result keys are sorted independently.
 
-Supplies a compatibility parameter for `param(...)` builtins in existing
-top-level workflows. May be repeated.
-
-`--input` and `--param` values are merged into a single map. If the same key
-appears in both flags with different values, the run fails with an error.
-
-New workflows should use `workflow(inputs = [...])` and `--input` instead.
-
-#### `--verbose`
-
-Enables verbose output. Off by default.
-
-### Exit Codes
-
-| Code | Meaning |
-|---|---|
-| 0 | Success |
-| 1 | Workflow load or execution error |
-| 2 | Argument error or unknown command |
-
-### Examples
-
-Run a workflow from the default library:
+Example:
 
 ```sh
-daiag run --workflow write_poem --workdir /output/run1
+daiag run --workflow poem_generator --input n=6
 ```
 
-Run a workflow from an explicit library:
+Example with explicit paths:
 
 ```sh
-daiag run --workflow feature-development \
+daiag run \
+  --workflow feature-development \
+  --projectdir /projects/myapp \
   --workflows-lib examples/development-workflow/workflows \
-  --workdir /tmp/daiag-run \
+  --run-dir .daiag/runs/feature-development/manual \
   --input name=indicators
-```
-
-Run a workflow from a shared or external library:
-
-```sh
-daiag run --workflow spec-refinement \
-  --workflows-lib /shared/workflows \
-  --workdir /output/run1 \
-  --input feature_dir=/projects/myapp/docs/features/login
-```
-
-Run from an experiment library with a relative path:
-
-```sh
-daiag run --workflow draft --workflows-lib ./experiments --workdir /output
 ```
 
 ## `daiag validate`
 
-Loads and validates a workflow without executing any tasks.
+Loads and validates a workflow without executing tasks.
 
 ```sh
-daiag validate --workflow <workflow-id> [--workflows-lib <dir>]
+daiag validate \
+  --workflow <workflow-id> \
+  [--projectdir <path>] \
+  [--workflows-lib <dir>] \
+  [--input key=value]...
 ```
 
-### Flags
+`--input` is accepted for workflows or legacy top-level `param(...)` references
+that need load-time values. Declared `input(...)` values do not need concrete
+values for validation.
 
-#### `--workflow <workflow-id>` (required)
+Examples:
 
-The workflow ID to validate. Follows the same rules as `daiag run`.
+```sh
+daiag validate --workflow workflow_bootstrapper
+```
 
-#### `--workflows-lib <dir>` (optional)
+```sh
+daiag validate \
+  --workflow feature-development \
+  --projectdir /projects/myapp \
+  --workflows-lib examples/development-workflow/workflows \
+  --input name=indicators
+```
 
-Path to the workflows library directory. Follows the same defaulting rules as
-`daiag run`.
+## `daiag bootstrap`
 
-### Exit Codes
+Runs a bootstrap workflow from the selected catalog and validates the generated
+workflow.
+
+```sh
+daiag bootstrap \
+  (--description "<workflow request>" | --description-file <path>) \
+  [--workflow <bootstrap-workflow-id>] \
+  [--projectdir <path>] \
+  [--run-dir <path>] \
+  [--workflows-lib <dir>] \
+  [--verbose]
+```
+
+Exactly one of `--description` or `--description-file` is required.
+`--workflow` selects the bootstrap workflow to execute and defaults to
+`workflow_bootstrapper`.
+
+The bootstrap command passes these inputs to the selected workflow:
+
+- `description`
+- `workflows_lib`
+
+The selected workflow must return string output results:
+
+- `workflow_id`
+- `workflow_path`
+- `outcome`
+
+`outcome` must be `complete`. `workflow_path` must be absolute and must match
+`<workflows-lib>/<workflow_id>/workflow.star` after symlink resolution. The CLI
+then validates the generated workflow from the selected `workflows-lib`.
+
+Success output:
+
+```text
+bootstrap complete
+workflow: <workflow-id>
+workflow path: <absolute-workflow-path>
+run dir: <absolute-run-dir>
+```
+
+Example:
+
+```sh
+daiag bootstrap --description "create a workflow that writes a haiku and reviews it"
+```
+
+## Exit Codes
 
 | Code | Meaning |
 |---|---|
-| 0 | Workflow is valid |
-| 1 | Workflow load or validation error |
-| 2 | Argument error |
+| 0 | Success |
+| 1 | Workflow load, validation, or execution error |
+| 2 | Argument error or unknown command |
 
-### Examples
+Errors are written to stderr. Argument errors also print the usage summary.
 
-Validate a workflow from the default library:
-
-```sh
-daiag validate --workflow write_poem
-```
-
-Validate a workflow from an explicit library:
-
-```sh
-daiag validate --workflow feature-development \
-  --workflows-lib examples/development-workflow/workflows
-```
-
-## `daiag help`
-
-Prints usage to stdout and exits with code 0. Also triggered by `-h` or
-`--help` as the first argument.
+## Help
 
 ```sh
 daiag help
 daiag -h
 daiag --help
 ```
-
-## Error Output
-
-Errors are written to stderr. The exit code indicates the error class:
-
-- Argument errors (missing required flags, invalid values, unknown commands)
-  print the error followed by the usage summary and exit with code 2.
-- Workflow load and execution errors print the error and exit with code 1
-  without reprinting usage.
