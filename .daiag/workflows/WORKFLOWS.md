@@ -15,7 +15,7 @@ Inputs:
 - `n` — number of lines the poem should contain
 
 Output Artifacts:
-- `poem` — `poem_generator/poem.md`
+- `poem` — run artifact containing the generated poem
 
 Output Results: `poem_path`
 
@@ -26,12 +26,12 @@ Repeatedly adds rows to a file in the existing content style until the line coun
 File: `.daiag/workflows/file_row_grower/workflow.star`
 
 Inputs:
-- `file_name` — path to the file to grow
+- `file_name` — project-relative path to the file to grow
 - `m` — row count threshold; loop exits when line count exceeds this value
 
 Output Artifacts:
 - `file` — the grown file at the path given by `file_name`
-- `status` — `file_row_grower/count_status.json`
+- `status` — run artifact containing the row count status JSON
 
 Output Results: `outcome`, `row_count`
 
@@ -43,9 +43,10 @@ File: `.daiag/workflows/workflow_composer/workflow.star`
 
 Inputs:
 - `description` — high-level description of the workflow to design
+- `workflows_lib` — absolute path to the workflow catalog to inspect
 
 Output Artifacts:
-- `blueprint` — `workflow_composer/blueprint.md`
+- `blueprint` — run artifact containing the generated blueprint
 
 Output Results: `outcome`, `blueprint_path`
 
@@ -57,8 +58,25 @@ File: `.daiag/workflows/workflow_author_from_blueprint/workflow.star`
 
 Inputs:
 - `blueprint_path` — path to the natural-language workflow blueprint markdown file
+- `workflows_lib` — absolute path to the target workflow catalog
 
 Output Artifacts:
-- `summary` — `workflow_author_from_blueprint/summary.md`
+- `summary` — run artifact containing the authoring summary
 
-Output Results: `workflow_path`, `outcome`
+Output Results: `workflow_id`, `workflow_path`, `outcome`
+
+## workflow_bootstrapper
+
+Composes the catalog planner and authoring workflows to generate a new workflow from a natural-language description.
+
+File: `.daiag/workflows/workflow_bootstrapper/workflow.star`
+
+Inputs:
+- `description` — high-level description of the workflow to create
+- `workflows_lib` — absolute path to the target workflow catalog
+
+Output Artifacts:
+- `blueprint` — run artifact containing the generated blueprint
+- `summary` — run artifact containing the authoring summary
+
+Output Results: `workflow_id`, `workflow_path`, `outcome`

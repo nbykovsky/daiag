@@ -1,7 +1,8 @@
 workflow_id = "file_row_grower"
 file_name = input("file_name")
+file_path = format("{project}/{file_name}", project = projectdir(), file_name = file_name)
 m = input("m")
-status_path = "file_row_grower/count_status.json"
+status_path = format("{run_dir}/file_row_grower/count_status.json", run_dir = run_dir())
 
 wf = workflow(
     id = workflow_id,
@@ -15,9 +16,9 @@ wf = workflow(
                 task(
                     id = "add_row",
                     prompt = template_file("add_row.md", vars = {
-                        "FILE_NAME": file_name,
+                        "FILE_NAME": file_path,
                     }),
-                    artifacts = {"file": artifact(file_name)},
+                    artifacts = {"file": artifact(file_path)},
                     result_keys = ["file_path"],
                 ),
                 task(

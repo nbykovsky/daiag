@@ -2,6 +2,7 @@
 
 Inputs:
 - `description`: ${DESCRIPTION}
+- `workflows_lib`: ${WORKFLOWS_LIB}
 - `blueprint_path`: ${BLUEPRINT_PATH}
 
 Instructions:
@@ -11,7 +12,7 @@ workflow description into a natural-language workflow blueprint. You do not know
 the workflow implementation language, do not write workflow files, and do not run
 commands or checks.
 
-1. Read `.daiag/workflows/WORKFLOWS.md` to learn the available workflow catalog.
+1. Read `${WORKFLOWS_LIB}/WORKFLOWS.md` to learn the available workflow catalog.
 2. Summarize the available workflow catalog in your own words.
 3. Decompose the description provided in `description` into natural-language stages.
 4. Match each stage to an existing catalog workflow when the catalog description,

@@ -1,6 +1,6 @@
 workflow_id = "poem_generator"
 n = input("n")
-poem_path = format("{workflow_id}/poem.md", workflow_id = workflow_id)
+poem_path = format("{run_dir}/{workflow_id}/poem.md", run_dir = run_dir(), workflow_id = workflow_id)
 
 wf = workflow(
     id = workflow_id,

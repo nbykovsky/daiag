@@ -2,12 +2,13 @@
 
 Inputs:
 - `description_path`: ${BLUEPRINT_PATH}
+- `workflows_lib`: ${WORKFLOWS_LIB}
 - `summary_path`: ${SUMMARY_PATH}
 
 Instructions:
 1. Read the workflow description document at `${BLUEPRINT_PATH}`. Treat it as the user's requirements document. It may be a free-form description or a structured natural-language blueprint.
-2. Read `.daiag/workflows/WORKFLOWS.md`. Use it as the catalog of existing reusable workflows and their public input/output contracts.
-3. Treat all `.daiag/...` paths as repository paths, not generated run-output paths. Before writing, confirm that `.daiag/workflows/WORKFLOWS.md` exists in the current workspace. If it does not exist, do not create a new `.daiag` directory; return `needs_clarification` and explain that the workflow author task must run from the project workspace.
+2. Read `${WORKFLOWS_LIB}/WORKFLOWS.md`. Use it as the catalog of existing reusable workflows and their public input/output contracts.
+3. Treat `${WORKFLOWS_LIB}` as the target workflow catalog. Before writing, confirm that `${WORKFLOWS_LIB}/WORKFLOWS.md` exists. If it does not exist, do not create a new workflow catalog; return `needs_clarification` and explain that the selected workflow catalog is missing.
 4. Before writing files, derive an implementation contract from the document. The contract must identify:
    - the main workflow purpose and generated workflow ID
    - runtime inputs accepted by the main workflow
@@ -29,6 +30,7 @@ Instructions:
    - a requested existing workflow whose catalog contract does not provide the required input or output
    - a workflow ID collision where the existing catalog entry does not clearly match the requested behavior
 6. If clarification is needed, do not write any workflow files. Return JSON with:
+   - `workflow_id`: empty string
    - `workflow_path`: empty string
    - `outcome`: `needs_clarification`
 
@@ -45,7 +47,7 @@ Instructions:
 
 ## Existing Workflow Reuse
 
-- Prefer existing workflows from `.daiag/workflows/WORKFLOWS.md` when their public contract satisfies a stage.
+- Prefer existing workflows from `${WORKFLOWS_LIB}/WORKFLOWS.md` when their public contract satisfies a stage.
 - Reference existing workflows by workflow ID only, not by file path.
 - Bind every required input of an existing workflow.
 - Do not bind unknown inputs.
@@ -57,8 +59,8 @@ Instructions:
 
 For every workflow you create or update:
 
-- Place files in `.daiag/workflows/<workflow_id>/`.
-- Write the entry file as `.daiag/workflows/<workflow_id>/workflow.star`.
+- Place files in `${WORKFLOWS_LIB}/<workflow_id>/`.
+- Write the entry file as `${WORKFLOWS_LIB}/<workflow_id>/workflow.star`.
 - Use the same workflow ID for the directory name and the workflow declaration.
 - Assign `wf = workflow(...)` at the top level.
 - Declare all runtime inputs and use `inputs = []` when there are no runtime inputs.
@@ -84,7 +86,7 @@ For every workflow you create or update:
 
 ## Prompt Template Rules
 
-Write one prompt file `.daiag/workflows/<workflow_id>/<task_name>.md` per task.
+Write one prompt file `${WORKFLOWS_LIB}/<workflow_id>/<task_name>.md` per task.
 
 Each prompt must:
 
@@ -141,7 +143,7 @@ Do not invent quality-review or retry loops that the document did not request.
 
 ## WORKFLOWS.md Rules
 
-After creating or updating any workflow, update `.daiag/workflows/WORKFLOWS.md`.
+After creating or updating any workflow, update `${WORKFLOWS_LIB}/WORKFLOWS.md`.
 
 Each entry must follow this format:
 
@@ -150,7 +152,7 @@ Each entry must follow this format:
 
 <one-sentence description of what the workflow does>
 
-File: `.daiag/workflows/<workflow_id>/workflow.star`
+File: `<workflow_path>`
 
 Inputs:
 - `<input>` — <description>
@@ -193,7 +195,7 @@ Before returning `complete`, verify:
 Write `${SUMMARY_PATH}` with:
 
 - `Outcome`: `complete` or `needs_clarification`
-- `Main workflow`: workflow ID and path, or `none` when clarification is needed
+- `Main workflow`: workflow ID and absolute path, or `none` when clarification is needed
 - `Created workflows`: workflow IDs and paths
 - `Updated workflows`: workflow IDs and paths
 - `Prompt files`: prompt file paths
@@ -204,7 +206,8 @@ Write `${SUMMARY_PATH}` with:
 Outputs:
 - Write/update: ${SUMMARY_PATH}
 - Return JSON with keys:
-  - `workflow_path`: path to the main workflow `.star` file, or empty string when `outcome` is `needs_clarification`
+  - `workflow_id`: generated workflow ID, or empty string when `outcome` is `needs_clarification`
+  - `workflow_path`: absolute path to the main workflow `.star` file, or empty string when `outcome` is `needs_clarification`
   - `outcome`: one of `complete`, `needs_clarification`
 
 Do not wrap the JSON in Markdown fences.
