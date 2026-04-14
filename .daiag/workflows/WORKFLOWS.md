@@ -67,16 +67,16 @@ Output Results: `workflow_id`, `workflow_path`, `outcome`
 
 ## workflow_bootstrapper
 
-Composes the catalog planner and authoring workflows to generate a new workflow from a natural-language description.
+Generates a new workflow from a natural-language description in a single step: plans, implements, and registers the workflow in the catalog.
 
 File: `.daiag/workflows/workflow_bootstrapper/workflow.star`
 
 Inputs:
-- `description` — high-level description of the workflow to create
+- `description` — natural-language description of the workflow to create
 - `workflows_lib` — absolute path to the target workflow catalog
 
 Output Artifacts:
-- `blueprint` — run artifact containing the generated blueprint
-- `summary` — run artifact containing the authoring summary
+- `blueprint` — planning document written before implementation
+- `summary` — authoring summary of created files
 
 Output Results: `workflow_id`, `workflow_path`, `outcome`
