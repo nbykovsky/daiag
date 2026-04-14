@@ -1,14 +1,14 @@
 workflow_id = "workflow_updater"
 target_workflow_id = input("workflow_id")
 review_path_input = input("review_path")
+changes_path = input("changes_path")
 
-changes_path = format("{run_dir}/workflow_updater/changes.md", run_dir = run_dir())
 workflow_star_path = format("{projectdir}/.daiag/workflows/{wf_id}/workflow.star", projectdir = projectdir(), wf_id = target_workflow_id)
 workflows_dir = format("{projectdir}/.daiag/workflows/{wf_id}", projectdir = projectdir(), wf_id = target_workflow_id)
 
 wf = workflow(
     id = workflow_id,
-    inputs = ["workflow_id", "review_path"],
+    inputs = ["workflow_id", "review_path", "changes_path"],
     default_executor = {"cli": "claude", "model": "claude-sonnet-4-6"},
     steps = [
         task(
