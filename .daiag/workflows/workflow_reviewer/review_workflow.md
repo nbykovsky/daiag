@@ -71,5 +71,6 @@ Instructions:
 5. Return JSON with:
    - `review_path`: the absolute path `${REVIEW_PATH}`
    - `outcome`: `"complete"`
+   - `verdict`: `"approved"` if the overall verdict is APPROVED or APPROVED_WITH_SUGGESTIONS; `"needs_revision"` if the overall verdict is NEEDS_REVISION
 
 Do not wrap the JSON in Markdown fences.

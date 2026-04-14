@@ -1,22 +1,19 @@
-# Bootstrap Workflow
+# Implement Workflow
+
+<!-- DOLLAR{VAR_NAME} is used in this file to describe ${VAR_NAME} template placeholders
+     in generated prompt files without triggering substitution in this file's own rendering. -->
 
 Inputs:
-- `description`: ${DESCRIPTION}
 - `workflows_lib`: ${WORKFLOWS_LIB}
 - `blueprint_path`: ${BLUEPRINT_PATH}
 - `summary_path`: ${SUMMARY_PATH}
+- `WORKFLOWS.md`: ${WORKFLOWS_LIB}/WORKFLOWS.md
 
 Instructions:
 
-1. Read `${WORKFLOWS_LIB}/WORKFLOWS.md`. Note existing workflow IDs to avoid collisions and identify reusable workflows.
+1. Read `${BLUEPRINT_PATH}`. If it contains `outcome: needs_clarification`, write `${SUMMARY_PATH}` with the clarification questions from the blueprint. Return `workflow_id` and `workflow_path` as empty strings and `outcome` as `needs_clarification`.
 
-2. Write a brief blueprint to `${BLUEPRINT_PATH}`:
-   - Workflow ID (snake_case, unique in the catalog)
-   - One-sentence goal
-   - Steps in order: what each step reads, writes, and returns
-   - Output artifacts and results the workflow exposes
-
-3. Implement the workflow under `${WORKFLOWS_LIB}/<workflow_id>/`:
+2. Otherwise, implement the workflow described in the blueprint under `${WORKFLOWS_LIB}/<workflow_id>/`:
    - `${WORKFLOWS_LIB}/<workflow_id>/workflow.star`
    - `${WORKFLOWS_LIB}/<workflow_id>/<task_id>.md` — one prompt file per task
 
@@ -79,15 +76,13 @@ Do not wrap the JSON in Markdown fences.
 ```
 
 Key rules:
-- Use dollar-brace placeholders (e.g. DOLLAR{VAR_NAME}) matching the `vars` keys in `workflow.star`. Replace the literal word DOLLAR with the dollar sign character when writing prompt files.
+- Use DOLLAR{VAR_NAME} placeholders (matching the `vars` keys in `workflow.star`). Replace the literal word DOLLAR with the dollar sign character when writing prompt files.
 - Tell the agent exactly which files to read and write, and the edit semantics (replace / append / update in place).
 - List allowed values for enum fields such as `outcome`.
 - Every JSON key listed must appear in the task's `result_keys`.
 - End with `Do not wrap the JSON in Markdown fences.`
 
-### WORKFLOWS.md update
-
-Add a new entry to `${WORKFLOWS_LIB}/WORKFLOWS.md`:
+3. Read `${WORKFLOWS_LIB}/WORKFLOWS.md` to understand its current content, then append a new entry:
 
 ```
 ## <workflow_id>
@@ -106,15 +101,14 @@ Output Results: `<key1>`, `<key2>`, ...
 ```
 
 4. Write a summary to `${SUMMARY_PATH}`:
-   - Outcome: `complete` or `needs_clarification`
+   - Outcome: `complete`
    - Workflow ID and absolute path to `workflow.star`
    - Tasks created with their prompt files
 
-5. If the description is too ambiguous to implement safely, write only `${SUMMARY_PATH}` listing the clarification questions needed. Return `outcome` as `needs_clarification` with empty `workflow_id` and `workflow_path`. Do not write workflow files.
-
 Outputs:
-- Write/update: ${BLUEPRINT_PATH}
-- Write/update: ${SUMMARY_PATH}
+- Write: `${WORKFLOWS_LIB}/<workflow_id>/workflow.star` and prompt files (path is dynamic; exposed via workflow_path result key)
+- Write/update: `${WORKFLOWS_LIB}/WORKFLOWS.md`
+- Write: ${SUMMARY_PATH}
 - Return JSON with keys:
   - `workflow_id`: the generated workflow ID, or empty string when outcome is needs_clarification
   - `workflow_path`: absolute path to the generated `workflow.star`, or empty string when outcome is needs_clarification

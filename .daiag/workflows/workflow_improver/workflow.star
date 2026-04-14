@@ -33,7 +33,7 @@ wf = workflow(
                     },
                 ),
             ],
-            until = eq(json_ref("update", "outcome"), "nothing_to_apply"),
+            until = eq(json_ref("review", "verdict"), "approved"),
         ),
     ],
     output_artifacts = {

@@ -18,12 +18,13 @@ wf = workflow(
                 "REVIEW_PATH": review_path,
             }),
             artifacts = {"review": artifact(review_path)},
-            result_keys = ["review_path", "outcome"],
+            result_keys = ["review_path", "outcome", "verdict"],
         ),
     ],
     output_artifacts = {"review": path_ref("review_workflow", "review")},
     output_results = {
         "review_path": json_ref("review_workflow", "review_path"),
         "outcome": json_ref("review_workflow", "outcome"),
+        "verdict": json_ref("review_workflow", "verdict"),
     },
 )
