@@ -35,3 +35,19 @@ Output Artifacts:
 - `review` — markdown review document with findings and verdict
 
 Output Results: `review_path`, `outcome`
+
+## workflow_updater
+
+Applies all ISSUE and SUGGESTION findings from a workflow_reviewer review document to a workflow's Starlark definition and prompt templates in place, then writes a change summary.
+
+File: `/Users/nik/Projects/daiag/.daiag/workflows/workflow_updater/workflow.star`
+
+Inputs:
+- `workflow_id` — the ID of the workflow to update (must match a subdirectory under `.daiag/workflows/`)
+- `review_path` — absolute path to a review document produced by workflow_reviewer
+
+Output Artifacts:
+- `workflow_star` — absolute path to the updated workflow.star
+- `changes` — markdown document listing every change made
+
+Output Results: `changes_path`, `outcome`
