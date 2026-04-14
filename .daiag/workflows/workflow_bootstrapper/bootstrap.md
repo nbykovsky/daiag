@@ -65,13 +65,13 @@ Each `<task_id>.md`:
 # Task Title
 
 Inputs:
-- `<name>`: ${PLACEHOLDER}
+- `<name>`: <PLACEHOLDER_VALUE_HERE>
 
 Instructions:
 1. ...
 
 Outputs:
-- Write/update: ${ARTIFACT_PATH}
+- Write/update: <ARTIFACT_PATH_VALUE_HERE>
 - Return JSON with keys:
   - `<key>`: <description>
 
@@ -79,7 +79,7 @@ Do not wrap the JSON in Markdown fences.
 ```
 
 Key rules:
-- Use `${VAR_NAME}` placeholders matching the `vars` keys in `workflow.star`.
+- Use dollar-brace placeholders (e.g. DOLLAR{VAR_NAME}) matching the `vars` keys in `workflow.star`. Replace the literal word DOLLAR with the dollar sign character when writing prompt files.
 - Tell the agent exactly which files to read and write, and the edit semantics (replace / append / update in place).
 - List allowed values for enum fields such as `outcome`.
 - Every JSON key listed must appear in the task's `result_keys`.

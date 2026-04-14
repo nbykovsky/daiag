@@ -21,3 +21,17 @@ Output Artifacts:
 - `summary` — authoring summary of created files
 
 Output Results: `workflow_id`, `workflow_path`, `outcome`
+
+## workflow_reviewer
+
+Reviews a daiag workflow's Starlark definition and prompt templates against DSL best practices and writes a concrete improvement report.
+
+File: `/Users/nik/Projects/daiag/.daiag/workflows/workflow_reviewer/workflow.star`
+
+Inputs:
+- `workflow_id` — the ID of the workflow to review (must match a subdirectory under `.daiag/workflows/`)
+
+Output Artifacts:
+- `review` — markdown review document with findings and verdict
+
+Output Results: `review_path`, `outcome`
