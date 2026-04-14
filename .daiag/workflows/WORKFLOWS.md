@@ -22,6 +22,22 @@ Output Artifacts:
 
 Output Results: `workflow_id`, `workflow_path`, `outcome`
 
+## workflow_improver
+
+Iteratively improves a daiag workflow by running review and update cycles until no further changes are needed or the iteration cap is reached.
+
+File: `/Users/nik/Projects/daiag/.daiag/workflows/workflow_improver/workflow.star`
+
+Inputs:
+- `workflow_id` — the ID of the workflow to improve (must match a subdirectory under `.daiag/workflows/`)
+
+Output Artifacts:
+- `review` — markdown review document from the final review pass
+- `changes` — markdown document listing every change made across all iterations
+- `workflow_star` — absolute path to the improved workflow.star
+
+Output Results: (none)
+
 ## workflow_reviewer
 
 Reviews a daiag workflow's Starlark definition and prompt templates against DSL best practices and writes a concrete improvement report.
