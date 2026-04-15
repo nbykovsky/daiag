@@ -62,6 +62,7 @@ File: `.daiag/workflows/workflow_lifecycle/workflow.star`
 
 Inputs:
 - `description` — natural-language description of the workflow to create
+- `workflows_lib` — absolute path to the target workflow catalog
 
 Output Artifacts:
 - `last_report` — the final review report from the last review iteration

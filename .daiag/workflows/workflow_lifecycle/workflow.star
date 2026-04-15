@@ -1,10 +1,10 @@
 workflow_id = "workflow_lifecycle"
 description = input("description")
-workflows_lib = format("{project}/.daiag/workflows", project = projectdir())
+workflows_lib = input("workflows_lib")
 
 wf = workflow(
     id = workflow_id,
-    inputs = ["description"],
+    inputs = ["description", "workflows_lib"],
     steps = [
         subworkflow(
             id = "bootstrap",
