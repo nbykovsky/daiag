@@ -54,3 +54,16 @@ _(none — all edits are made in-place to the existing workflow files)_
 
 Output Results: `outcome`
 
+## workflow_lifecycle
+
+Bootstraps a new workflow from a description, then runs review and patch in a loop (max 3 iterations) until the workflow is clean.
+
+File: `.daiag/workflows/workflow_lifecycle/workflow.star`
+
+Inputs:
+- `description` — natural-language description of the workflow to create
+
+Output Artifacts:
+- `last_report` — the final review report from the last review iteration
+
+Output Results: `workflow_id`, `workflow_path`, `outcome`
