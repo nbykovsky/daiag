@@ -68,3 +68,18 @@ Output Artifacts:
 - `last_report` — the final review report from the last review iteration
 
 Output Results: `workflow_id`, `workflow_path`, `outcome`
+
+## workflow_composer
+
+Ensures all required building-block workflows exist in the catalog, then assembles the final workflow from a natural-language description.
+
+File: `.daiag/workflows/workflow_composer/workflow.star`
+
+Inputs:
+- `description` — natural-language description of the workflow to create
+- `workflows_lib` — absolute path to the target workflow catalog
+
+Output Artifacts:
+_(none — all artifacts are produced inside nested subworkflow runs)_
+
+Output Results: `workflow_id`, `workflow_path`, `outcome`

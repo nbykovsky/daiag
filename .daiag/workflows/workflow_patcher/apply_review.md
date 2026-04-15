@@ -24,6 +24,6 @@ Outputs:
 - Edit in place (if needed): `${WORKFLOWS_LIB}/${WORKFLOW_ID}/<task_id>.md` files
 - Write: `${STATUS_PATH}`
 - Return JSON with keys:
-  - `outcome`: `ready` if the report contained no actionable issues and no edits were needed, `review_request` if at least one change was applied
+  - `outcome`: `complete` if the report contained no actionable issues and no edits were needed, `review_request` if at least one change was applied
 
 Do not wrap the JSON in Markdown fences.

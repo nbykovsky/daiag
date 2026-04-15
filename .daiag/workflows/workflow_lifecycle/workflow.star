@@ -37,7 +37,7 @@ wf = workflow(
                     },
                 ),
             ],
-            until = eq(json_ref("patch", "outcome"), "ready"),
+            until = eq(json_ref("patch", "outcome"), "complete"),
         ),
     ],
     output_artifacts = {
