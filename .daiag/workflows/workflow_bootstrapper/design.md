@@ -1,6 +1,6 @@
 # Design Workflow
 
-<!-- DOLLAR{VAR_NAME} is used in this file to describe ${VAR_NAME} template placeholders
+<!-- DOLLAR{VAR_NAME} is used in this file to describe DOLLAR{VAR_NAME} template placeholders
      in generated prompt files without triggering substitution in this file's own rendering. -->
 
 Inputs:

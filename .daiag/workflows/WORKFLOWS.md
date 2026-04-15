@@ -22,3 +22,19 @@ Output Artifacts:
 
 Output Results: `workflow_id`, `workflow_path`, `outcome`
 
+## workflow_reviewer
+
+Reviews an existing daiag workflow's structure, correctness, and prompt quality, writing a Markdown report to the run directory.
+
+File: `.daiag/workflows/workflow_reviewer/workflow.star`
+
+Inputs:
+- `workflow_id` — ID of the workflow to review (must exist under `workflows_lib`)
+- `workflows_lib` — absolute path to the workflow catalog directory
+- `report_name` — filename for the output review report (e.g. `review.md`)
+
+Output Artifacts:
+- `report` — Markdown review report written to the run directory
+
+Output Results: `report_path`
+
