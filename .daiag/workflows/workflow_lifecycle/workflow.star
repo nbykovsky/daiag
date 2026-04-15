@@ -24,7 +24,7 @@ wf = workflow(
                     inputs = {
                         "workflow_id": json_ref("bootstrap", "workflow_id"),
                         "workflows_lib": workflows_lib,
-                        "report_name": "review.md",
+                        "report_name": format("review_{iter}.md", iter = loop_iter(loop_id = "review_patch_loop")),
                     },
                 ),
                 subworkflow(
