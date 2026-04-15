@@ -38,3 +38,19 @@ Output Artifacts:
 
 Output Results: `report_path`
 
+## workflow_patcher
+
+Applies actionable suggestions from a workflow_reviewer report to the target workflow's files in place.
+
+File: `.daiag/workflows/workflow_patcher/workflow.star`
+
+Inputs:
+- `report_path` — absolute path to the Markdown review report produced by workflow_reviewer
+- `workflow_id` — ID of the workflow to patch (must exist under `workflows_lib`)
+- `workflows_lib` — absolute path to the workflow catalog directory
+
+Output Artifacts:
+_(none — all edits are made in-place to the existing workflow files)_
+
+Output Results: `outcome`
+
