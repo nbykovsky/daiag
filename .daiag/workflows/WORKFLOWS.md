@@ -86,7 +86,7 @@ Output Results: `workflow_id`, `workflow_path`, `outcome`
 
 ## workflow_assembler
 
-Assembles a complex daiag workflow from catalog components by producing a detailed composition plan and delegating implementation to workflow_lifecycle.
+Assembles a complex daiag workflow from catalog components: produces a detailed composition plan, implements the workflow directly (supporting tasks, subworkflows, loops, and conditionals), then runs review and patch in a loop until clean.
 
 File: `.daiag/workflows/workflow_assembler/workflow.star`
 
@@ -96,5 +96,6 @@ Inputs:
 
 Output Artifacts:
 - `composition_plan` — Markdown plan documenting which catalog workflows are used as steps and how data flows between them
+- `last_report` — final review report from the last review iteration
 
 Output Results: `workflow_id`, `workflow_path`, `outcome`

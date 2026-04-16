@@ -21,11 +21,11 @@ Instructions:
      - For `repeat_until` steps: the child steps inside the loop, the `until` condition, and `max_iters`
      - For `when` steps: the condition, the steps in the true branch, and any `else_steps`
    - A data-flow summary showing how outputs from each step feed into subsequent steps
-5. Return a `full_description` — a complete, structured description of the workflow naming the exact catalog workflow IDs to use as subworkflow steps, their order, any loop or conditional control flow with explicit conditions, and how data flows between steps via `path_ref` and `json_ref`. This will be passed directly to `workflow_lifecycle` to implement the workflow.
+5. The composition plan file is the complete specification that the implement step will read directly — make it precise and unambiguous.
 
 Outputs:
 - Write: `${COMPOSITION_PLAN_PATH}`
 - Return JSON with keys:
-  - `full_description`: detailed structured description for implementing the workflow, naming catalog workflow IDs as subworkflow steps, their sequencing, and data flow via path_ref and json_ref
+  - `outcome`: `complete`
 
 Do not wrap the JSON in Markdown fences.
