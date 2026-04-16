@@ -44,7 +44,7 @@ wf = workflow(
         ),
         subworkflow(
             id = "assemble",
-            workflow = "workflow_bootstrapper",
+            workflow = "workflow_assembler",
             inputs = {
                 "description": description,
                 "workflows_lib": workflows_lib,
