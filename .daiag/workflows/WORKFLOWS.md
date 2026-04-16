@@ -99,3 +99,18 @@ Output Artifacts:
 - `last_report` — final review report from the last review iteration
 
 Output Results: `workflow_id`, `workflow_path`, `outcome`
+
+## code_review_pipeline
+
+Reviews a source file against coding standards, then loops up to 3 times applying fixes and re-reviewing until the file is approved or iterations are exhausted.
+
+File: `.daiag/workflows/code_review_pipeline/workflow.star`
+
+Inputs:
+- `file_path` — absolute path to the source file to review
+- `standards` — natural-language description of the coding standards to enforce
+
+Output Artifacts:
+- `violations_report` — final violations report after all review/fix iterations
+
+Output Results: `outcome`, `violation_count`
