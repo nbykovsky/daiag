@@ -83,3 +83,18 @@ Output Artifacts:
 _(none — all artifacts are produced inside nested subworkflow runs)_
 
 Output Results: `workflow_id`, `workflow_path`, `outcome`
+
+## workflow_assembler
+
+Assembles a complex daiag workflow from catalog components by producing a detailed composition plan and delegating implementation to workflow_lifecycle.
+
+File: `.daiag/workflows/workflow_assembler/workflow.star`
+
+Inputs:
+- `description` — natural-language description of the workflow to create
+- `workflows_lib` — absolute path to the target workflow catalog
+
+Output Artifacts:
+- `composition_plan` — Markdown plan documenting which catalog workflows are used as steps and how data flows between them
+
+Output Results: `workflow_id`, `workflow_path`, `outcome`
