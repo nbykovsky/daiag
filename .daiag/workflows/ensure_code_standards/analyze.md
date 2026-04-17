@@ -32,6 +32,8 @@ Analysis output path: ${ANALYSIS_PATH}
    - Full text of the existing standards file (if present)
    - Your `action` judgment with brief reasoning
 
+Write the analysis file to `${ANALYSIS_PATH}` first, then return the JSON object below.
+
 Return JSON with:
 - `action`: one of `create`, `update`, `ok`
 

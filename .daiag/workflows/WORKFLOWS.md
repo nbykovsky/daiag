@@ -117,13 +117,14 @@ Output Results: `outcome`, `violation_count`
 
 ## ensure_code_standards
 
-Ensures `docs/code-standards.md` exists and reflects the actual codebase by analyzing the project at runtime and creating or updating the file as needed.
+Ensures `docs/code-standards.md` exists and accurately reflects the project's actual languages, patterns, and conventions by analyzing source files at runtime and creating or updating the file as needed.
 
 File: `.daiag/workflows/ensure_code_standards/workflow.star`
 
 Inputs: _(none — all paths resolved from `projectdir()` and `run_dir()` at runtime)_
 
 Output Artifacts:
-- `analysis` — structured analysis of the project written to the run directory
+- `analysis` — structured analysis of languages, conventions, and standards-file status written to the run directory
+- `standards` — the written or rewritten `docs/code-standards.md` (absent when action is `ok`)
 
-Output Results: `action`
+Output Results: `action`, `outcome`

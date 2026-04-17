@@ -1,7 +1,6 @@
 You are writing or updating the code standards document for a software project.
 
 Analysis artifact path: ${ANALYSIS_PATH}
-Project directory: ${PROJECT_DIR}
 Output path: ${STANDARDS_PATH}
 
 ## Task
@@ -12,13 +11,14 @@ Output path: ${STANDARDS_PATH}
    - Error-handling and test patterns
    - Project-specific idioms
    - The full text of any existing standards file (if present)
+   - An `action` judgment: `create` or `update`
 
-2. Determine the action from the analysis (`create` or `update`) and proceed accordingly:
+2. Check the `action` judgment in the analysis and proceed accordingly:
 
    - **`create`** — no existing standards file was found. Write the document from scratch based entirely on the observed codebase conventions.
    - **`update`** — an existing standards file was found and its full text is included in the analysis. Merge and improve it: preserve correct and relevant rules, add missing rules discovered in the analysis, remove rules that no longer reflect the codebase, and resolve any inconsistencies. Do not discard content without a reason.
 
-3. Write or rewrite the file at `${STANDARDS_PATH}` (i.e. `docs/code-standards.md` under the project root).
+3. Write or rewrite the file at `${STANDARDS_PATH}`.
    The document must:
    - Cover all detected languages and concern areas found in the analysis
    - Provide concrete, actionable rules — not vague guidelines
