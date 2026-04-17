@@ -114,3 +114,16 @@ Output Artifacts:
 - `violations_report` — final violations report after all review/fix iterations
 
 Output Results: `outcome`, `violation_count`
+
+## ensure_code_standards
+
+Ensures `docs/code-standards.md` exists and reflects the actual codebase by analyzing the project at runtime and creating or updating the file as needed.
+
+File: `.daiag/workflows/ensure_code_standards/workflow.star`
+
+Inputs: _(none — all paths resolved from `projectdir()` and `run_dir()` at runtime)_
+
+Output Artifacts:
+- `analysis` — structured analysis of the project written to the run directory
+
+Output Results: `action`
