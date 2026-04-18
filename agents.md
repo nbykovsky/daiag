@@ -20,7 +20,7 @@ The codebase should stay small, explicit, and easy to change.
 
 ## Go Standards
 
-- Use the standard library unless a dependency clearly removes real complexity.
+- Use well-established dependencies (e.g. cobra for CLI, viper for config) when they reduce boilerplate or improve scalability; prefer the standard library only when a dependency adds no meaningful value.
 - Keep packages focused and cohesive.
 - Prefer concrete types over interfaces at package boundaries unless multiple implementations are already needed.
 - Return errors with context using `fmt.Errorf("...: %w", err)`.
@@ -41,13 +41,14 @@ The codebase should stay small, explicit, and easy to change.
 
 ## CLI Best Practices
 
+- Use cobra for command and subcommand definitions; it provides comprehensive --help at every level and scales well as commands grow.
 - Keep the CLI predictable and script-friendly.
 - Use explicit flags instead of implicit behavior.
 - Print concise progress messages to stdout during normal execution.
 - Print actionable error messages to stderr.
 - Return non-zero exit codes on validation or execution failure.
 - Do not print noisy debug details unless the user asks via a flag such as `--verbose`.
-- Keep help text short and concrete.
+- Write thorough, example-rich help text so LLMs and humans can use the tool without reading source.
 
 ## Workflow Runner Conventions
 
