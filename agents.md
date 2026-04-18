@@ -94,3 +94,31 @@ If a task changes only documentation or repository metadata, document that build
 - Use imperative commit messages.
 - Do not combine setup, refactor, and feature work in one commit unless they are inseparable.
 - Keep the main branch working after every commit.
+
+## Release Procedure
+
+Releases are automated via GoReleaser (`.goreleaser.yaml`) triggered by a version tag push.
+The workflow (`.github/workflows/release.yml`) builds binaries for linux/darwin × amd64/arm64,
+publishes a GitHub Release with checksums, and updates the Homebrew tap at
+`nbykovsky/homebrew-tap`.
+
+Steps to cut a release:
+
+1. Confirm `main` is clean, builds, and all tests pass:
+   ```
+   go build ./...
+   go test ./...
+   ```
+2. Choose the next semver tag following the existing tags (`git tag --sort=-v:refname | head -3`).
+   Use `vMAJOR.MINOR.PATCH` — increment MINOR for new features, PATCH for bug fixes, MAJOR for
+   breaking changes.
+3. Tag and push:
+   ```
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+4. GitHub Actions runs GoReleaser automatically. Monitor at:
+   `https://github.com/nbykovsky/daiag/actions`
+
+The `HOMEBREW_TAP_GITHUB_TOKEN` secret must be set in the repository for the brew formula to
+update. If it is missing, GoReleaser will fail the tap step; the binaries are still published.
