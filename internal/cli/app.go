@@ -3,22 +3,12 @@ package cli
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/spf13/cobra"
 )
-
-const usageText = `Usage:
-  daiag run --workflow <workflow-id> [--projectdir <path>] [--run-dir <path>] [--workflows-lib <dir>] [--input key=value] [--verbose]
-  daiag validate --workflow <workflow-id> [--projectdir <path>] [--workflows-lib <dir>] [--input key=value]
-  daiag bootstrap (--description <text> | --description-file <path>) [--workflow <bootstrap-workflow-id>] [--projectdir <path>] [--run-dir <path>] [--workflows-lib <dir>] [--verbose]
-
-Commands:
-  run        Execute a workflow
-  validate   Parse and validate a workflow without executing it
-  bootstrap  Generate a workflow through the workflow catalog bootstrapper
-`
 
 type Runner interface {
 	Run(context.Context, RunConfig) error
@@ -77,176 +67,222 @@ func New(stdout, stderr io.Writer, runner Runner, validator Validator) *App {
 	}
 }
 
+// usageError marks errors that should produce exit code 2 (bad usage / flag parse failure).
+type usageError struct{ cause error }
+
+func (e usageError) Error() string { return e.cause.Error() }
+func (e usageError) Unwrap() error { return e.cause }
+
 func (a *App) Run(ctx context.Context, args []string) int {
-	if len(args) == 0 {
-		a.printUsage(a.stderr)
-		return 2
+	root := a.buildRoot(ctx)
+	root.SetArgs(args)
+	root.SetOut(a.stdout)
+	root.SetErr(a.stderr)
+
+	err := root.Execute()
+	if err == nil {
+		return 0
 	}
 
-	switch args[0] {
-	case "run":
-		cfg, err := parseRunArgs(args[1:])
-		if err != nil {
-			fmt.Fprintf(a.stderr, "error: %v\n\n", err)
-			a.printUsage(a.stderr)
-			return 2
-		}
-		if err := a.runner.Run(ctx, cfg); err != nil {
-			fmt.Fprintf(a.stderr, "error: %v\n", err)
-			return 1
-		}
-		return 0
-	case "validate":
-		cfg, err := parseValidateArgs(args[1:])
-		if err != nil {
-			fmt.Fprintf(a.stderr, "error: %v\n\n", err)
-			a.printUsage(a.stderr)
-			return 2
-		}
-		if err := a.validator.Validate(ctx, cfg); err != nil {
-			fmt.Fprintf(a.stderr, "error: %v\n", err)
-			return 1
-		}
-		fmt.Fprintf(a.stdout, "workflow %q is valid\n", cfg.Workflow)
-		return 0
-	case "bootstrap":
-		cfg, err := parseBootstrapArgs(args[1:])
-		if err != nil {
-			fmt.Fprintf(a.stderr, "error: %v\n\n", err)
-			a.printUsage(a.stderr)
-			return 2
-		}
-		if a.bootstrapper == nil {
-			fmt.Fprintln(a.stderr, "error: bootstrap command is unavailable")
-			return 1
-		}
-		if err := a.bootstrapper.Bootstrap(ctx, cfg); err != nil {
-			fmt.Fprintf(a.stderr, "error: %v\n", err)
-			return 1
-		}
-		return 0
-	case "help", "-h", "--help":
-		a.printUsage(a.stdout)
-		return 0
-	default:
-		fmt.Fprintf(a.stderr, "error: unknown command %q\n\n", args[0])
-		a.printUsage(a.stderr)
+	var ue usageError
+	if errors.As(err, &ue) {
+		fmt.Fprintf(a.stderr, "error: %v\n\n", err)
+		fmt.Fprint(a.stderr, root.UsageString())
 		return 2
 	}
+	fmt.Fprintf(a.stderr, "error: %v\n", err)
+	return 1
 }
 
-func (a *App) printUsage(w io.Writer) {
-	io.WriteString(w, usageText)
+func (a *App) buildRoot(ctx context.Context) *cobra.Command {
+	root := &cobra.Command{
+		Use:           "daiag",
+		Short:         "Orchestrate AI agents through Starlark-defined workflows",
+		SilenceErrors: true,
+		SilenceUsage:  true,
+	}
+	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
+		return usageError{err}
+	})
+	root.AddCommand(a.newRunCmd(ctx))
+	root.AddCommand(a.newValidateCmd(ctx))
+	root.AddCommand(a.newBootstrapCmd(ctx))
+	return root
 }
 
-func parseRunArgs(args []string) (RunConfig, error) {
+func (a *App) newRunCmd(ctx context.Context) *cobra.Command {
 	var cfg RunConfig
-	var inputs multiFlag
+	var rawInputs []string
 
-	fs := flag.NewFlagSet("run", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
+	cmd := &cobra.Command{
+		Use:   "run",
+		Short: "Execute a workflow",
+		Long: `Execute a workflow by ID. Loads the workflow definition from the workflows
+library, resolves inputs, and runs each task sequentially.
 
-	fs.StringVar(&cfg.Workflow, "workflow", "", "workflow ID")
-	fs.StringVar(&cfg.ProjectDir, "projectdir", "", "project directory")
-	fs.StringVar(&cfg.RunDir, "run-dir", "", "run artifact directory")
-	fs.StringVar(&cfg.WorkflowsLib, "workflows-lib", "", "workflow library directory")
-	fs.BoolVar(&cfg.Verbose, "verbose", false, "enable verbose output")
-	fs.Var(&inputs, "input", "workflow input in key=value form")
+Flags:
+  --workflow       (required) Workflow ID, e.g. "poem" or "code-review".
+  --input          Repeatable. Workflow input as key=value, e.g. --input feature=poem.
+  --projectdir     Project root. Defaults to the nearest ancestor containing .daiag/.
+  --run-dir        Directory to store run artifacts. Defaults to .daiag/runs/<id>/<timestamp>/.
+  --workflows-lib  Directory containing workflow definitions. Defaults to <projectdir>/.daiag/workflows/.
+  --verbose        Print detailed progress output.
 
-	if err := fs.Parse(args); err != nil {
-		return RunConfig{}, err
+Examples:
+  # Run the "poem" workflow with two inputs
+  daiag run --workflow poem --input feature=poem --input mode=fast
+
+  # Run with an explicit project and run directory
+  daiag run --workflow code-review --projectdir /path/to/repo --run-dir /tmp/run1
+
+  # Run with a shared workflows library
+  daiag run --workflow poem --workflows-lib /shared/workflows --verbose`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				return usageError{fmt.Errorf("unexpected arguments: %s", strings.Join(args, " "))}
+			}
+			if cfg.Workflow == "" {
+				return usageError{errors.New("--workflow is required")}
+			}
+			inputs, err := parseInputs(rawInputs)
+			if err != nil {
+				return usageError{err}
+			}
+			cfg.Inputs = inputs
+			return a.runner.Run(ctx, cfg)
+		},
 	}
-	if fs.NArg() > 0 {
-		return RunConfig{}, fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
-	}
-	if cfg.Workflow == "" {
-		return RunConfig{}, errors.New("--workflow is required")
-	}
 
-	inputMap := make(map[string]string, len(inputs))
-	for _, raw := range inputs {
-		key, value, err := parseKeyValue("--input", raw)
-		if err != nil {
-			return RunConfig{}, err
-		}
-		inputMap[key] = value
-	}
-	cfg.Inputs = cloneStringMap(inputMap)
+	cmd.Flags().StringVar(&cfg.Workflow, "workflow", "", "workflow ID")
+	cmd.Flags().StringVar(&cfg.ProjectDir, "projectdir", "", "project directory")
+	cmd.Flags().StringVar(&cfg.RunDir, "run-dir", "", "run artifact directory")
+	cmd.Flags().StringVar(&cfg.WorkflowsLib, "workflows-lib", "", "workflow library directory")
+	cmd.Flags().BoolVar(&cfg.Verbose, "verbose", false, "enable verbose output")
+	cmd.Flags().StringArrayVar(&rawInputs, "input", nil, "workflow input as key=value (repeatable)")
 
-	return cfg, nil
+	return cmd
 }
 
-func parseValidateArgs(args []string) (ValidateConfig, error) {
+func (a *App) newValidateCmd(ctx context.Context) *cobra.Command {
 	var cfg ValidateConfig
-	var inputs multiFlag
-	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	fs.StringVar(&cfg.Workflow, "workflow", "", "workflow ID")
-	fs.StringVar(&cfg.ProjectDir, "projectdir", "", "project directory")
-	fs.StringVar(&cfg.WorkflowsLib, "workflows-lib", "", "workflow library directory")
-	fs.Var(&inputs, "input", "workflow input in key=value form")
-	if err := fs.Parse(args); err != nil {
-		return ValidateConfig{}, err
+	var rawInputs []string
+
+	cmd := &cobra.Command{
+		Use:   "validate",
+		Short: "Parse and validate a workflow without executing it",
+		Long: `Parse and validate a workflow definition without executing it.
+Useful for CI checks and authoring feedback.
+
+Flags:
+  --workflow       (required) Workflow ID to validate.
+  --input          Repeatable. Workflow input as key=value (values are not executed).
+  --projectdir     Project root. Defaults to the nearest ancestor containing .daiag/.
+  --workflows-lib  Directory containing workflow definitions. Defaults to <projectdir>/.daiag/workflows/.
+
+Examples:
+  # Validate the "poem" workflow
+  daiag validate --workflow poem
+
+  # Validate with explicit inputs and project directory
+  daiag validate --workflow code-review --projectdir /path/to/repo --input ticket=PROJ-123`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				return usageError{fmt.Errorf("unexpected arguments: %s", strings.Join(args, " "))}
+			}
+			if cfg.Workflow == "" {
+				return usageError{errors.New("--workflow is required")}
+			}
+			inputs, err := parseInputs(rawInputs)
+			if err != nil {
+				return usageError{err}
+			}
+			cfg.Inputs = inputs
+			if err := a.validator.Validate(ctx, cfg); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "workflow %q is valid\n", cfg.Workflow)
+			return nil
+		},
 	}
-	if fs.NArg() > 0 {
-		return ValidateConfig{}, fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
-	}
-	if cfg.Workflow == "" {
-		return ValidateConfig{}, errors.New("--workflow is required")
-	}
-	inputMap := make(map[string]string, len(inputs))
-	for _, raw := range inputs {
-		key, value, err := parseKeyValue("--input", raw)
-		if err != nil {
-			return ValidateConfig{}, err
-		}
-		inputMap[key] = value
-	}
-	cfg.Inputs = cloneStringMap(inputMap)
-	return cfg, nil
+
+	cmd.Flags().StringVar(&cfg.Workflow, "workflow", "", "workflow ID")
+	cmd.Flags().StringVar(&cfg.ProjectDir, "projectdir", "", "project directory")
+	cmd.Flags().StringVar(&cfg.WorkflowsLib, "workflows-lib", "", "workflow library directory")
+	cmd.Flags().StringArrayVar(&rawInputs, "input", nil, "workflow input as key=value (repeatable)")
+
+	return cmd
 }
 
-func parseBootstrapArgs(args []string) (BootstrapConfig, error) {
+func (a *App) newBootstrapCmd(ctx context.Context) *cobra.Command {
 	cfg := BootstrapConfig{Workflow: "workflow_bootstrapper"}
+	var rawInputs []string
 
-	fs := flag.NewFlagSet("bootstrap", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
+	cmd := &cobra.Command{
+		Use:   "bootstrap",
+		Short: "Generate a workflow through the workflow catalog bootstrapper",
+		Long: `Generate a new workflow using the workflow catalog bootstrapper.
+Exactly one of --description or --description-file must be provided.
 
-	fs.StringVar(&cfg.Workflow, "workflow", cfg.Workflow, "bootstrap workflow ID")
-	fs.StringVar(&cfg.Description, "description", "", "workflow request")
-	fs.StringVar(&cfg.DescriptionFile, "description-file", "", "workflow request file")
-	fs.StringVar(&cfg.ProjectDir, "projectdir", "", "project directory")
-	fs.StringVar(&cfg.RunDir, "run-dir", "", "run artifact directory")
-	fs.StringVar(&cfg.WorkflowsLib, "workflows-lib", "", "workflow library directory")
-	fs.BoolVar(&cfg.Verbose, "verbose", false, "enable verbose output")
+Flags:
+  --description       Natural-language description of the workflow to generate.
+  --description-file  Path to a file containing the workflow description.
+  --workflow          Bootstrap workflow ID (default: workflow_bootstrapper).
+  --projectdir        Project root. Defaults to the nearest ancestor containing .daiag/.
+  --run-dir           Directory to store run artifacts. Defaults to .daiag/runs/<id>/<timestamp>/.
+  --workflows-lib     Directory containing workflow definitions. Defaults to <projectdir>/.daiag/workflows/.
+  --verbose           Print detailed progress output.
 
-	if err := fs.Parse(args); err != nil {
-		return BootstrapConfig{}, err
-	}
-	if fs.NArg() > 0 {
-		return BootstrapConfig{}, fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
-	}
-	if cfg.Workflow == "" {
-		return BootstrapConfig{}, errors.New("--workflow must not be empty")
-	}
-	hasDescription := cfg.Description != ""
-	hasDescriptionFile := cfg.DescriptionFile != ""
-	if hasDescription == hasDescriptionFile {
-		return BootstrapConfig{}, errors.New("exactly one of --description or --description-file is required")
+Examples:
+  # Bootstrap a workflow from an inline description
+  daiag bootstrap --description "summarise a pull request and post a comment"
+
+  # Bootstrap from a requirements file
+  daiag bootstrap --description-file requirements.md --projectdir /path/to/repo
+
+  # Use a custom bootstrap workflow with verbose output
+  daiag bootstrap --description "review code" --workflow custom_bootstrap --verbose`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				return usageError{fmt.Errorf("unexpected arguments: %s", strings.Join(args, " "))}
+			}
+			if cfg.Workflow == "" {
+				return usageError{errors.New("--workflow must not be empty")}
+			}
+			hasDesc := cfg.Description != ""
+			hasFile := cfg.DescriptionFile != ""
+			if hasDesc == hasFile {
+				return usageError{errors.New("exactly one of --description or --description-file is required")}
+			}
+			if a.bootstrapper == nil {
+				return errors.New("bootstrap command is unavailable")
+			}
+			_ = rawInputs // bootstrap does not accept --input; kept for symmetry
+			return a.bootstrapper.Bootstrap(ctx, cfg)
+		},
 	}
 
-	return cfg, nil
+	cmd.Flags().StringVar(&cfg.Workflow, "workflow", cfg.Workflow, "bootstrap workflow ID")
+	cmd.Flags().StringVar(&cfg.Description, "description", "", "workflow request")
+	cmd.Flags().StringVar(&cfg.DescriptionFile, "description-file", "", "workflow request file")
+	cmd.Flags().StringVar(&cfg.ProjectDir, "projectdir", "", "project directory")
+	cmd.Flags().StringVar(&cfg.RunDir, "run-dir", "", "run artifact directory")
+	cmd.Flags().StringVar(&cfg.WorkflowsLib, "workflows-lib", "", "workflow library directory")
+	cmd.Flags().BoolVar(&cfg.Verbose, "verbose", false, "enable verbose output")
+	cmd.Flags().StringArrayVar(&rawInputs, "input", nil, "workflow input as key=value (repeatable)")
+
+	return cmd
 }
 
-type multiFlag []string
-
-func (m *multiFlag) String() string {
-	return strings.Join(*m, ",")
-}
-
-func (m *multiFlag) Set(value string) error {
-	*m = append(*m, value)
-	return nil
+func parseInputs(raw []string) (map[string]string, error) {
+	m := make(map[string]string, len(raw))
+	for _, r := range raw {
+		k, v, err := parseKeyValue("--input", r)
+		if err != nil {
+			return nil, err
+		}
+		m[k] = v
+	}
+	return cloneStringMap(m), nil
 }
 
 func parseKeyValue(flagName string, raw string) (string, string, error) {

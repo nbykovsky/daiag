@@ -83,7 +83,7 @@ func TestAppRunRejectsParamFlag(t *testing.T) {
 	if exitCode != 2 {
 		t.Fatalf("exit code = %d, want 2", exitCode)
 	}
-	if !strings.Contains(stderr.String(), `flag provided but not defined: -param`) {
+	if !strings.Contains(stderr.String(), `unknown flag: --param`) {
 		t.Fatalf("stderr = %q, want unknown --param error", stderr.String())
 	}
 }
