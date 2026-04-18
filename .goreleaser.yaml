@@ -1,0 +1,40 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: daiag
+    main: ./cmd/daiag
+    binary: daiag
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+brews:
+  - name: daiag
+    repository:
+      owner: nbykovsky
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/nbykovsky/daiag"
+    description: "CLI tool for orchestrating AI agents through Starlark-defined workflows"
+    license: "MIT"
+    install: |
+      bin.install "daiag"
+    test: |
+      system "#{bin}/daiag", "--help"
