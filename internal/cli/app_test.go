@@ -259,11 +259,67 @@ func TestAppBootstrapRejectsDescriptionAndDescriptionFile(t *testing.T) {
 	}
 }
 
+func TestAppInitList(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	app := New(&stdout, &stderr, &fakeRunner{}, nil)
+	exitCode := app.Run(context.Background(), []string{"init", "--list"})
+
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr=%q)", exitCode, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "workflow_bootstrapper") {
+		t.Fatalf("stdout = %q, want workflow IDs", stdout.String())
+	}
+}
+
+func TestAppInitInvokesInitializer(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	runner := &fakeRunner{}
+	app := New(&stdout, &stderr, runner, nil)
+	exitCode := app.Run(context.Background(), []string{
+		"init",
+		"--workflow", "workflow_bootstrapper",
+		"--workflow", "code_review_pipeline",
+		"--force",
+	})
+
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr=%q)", exitCode, stderr.String())
+	}
+	if !runner.initCalled {
+		t.Fatal("Init was not called")
+	}
+	if !runner.initCfg.Force {
+		t.Error("Force should be true")
+	}
+	if len(runner.initCfg.Workflows) != 2 {
+		t.Errorf("Workflows = %v, want 2 entries", runner.initCfg.Workflows)
+	}
+}
+
+func TestAppInitRejectsUnexpectedArgs(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	app := New(&stdout, &stderr, &fakeRunner{}, nil)
+	exitCode := app.Run(context.Background(), []string{"init", "extra-arg"})
+
+	if exitCode != 2 {
+		t.Fatalf("exit code = %d, want 2", exitCode)
+	}
+}
+
 type fakeRunner struct {
 	called          bool
 	bootstrapCalled bool
+	initCalled      bool
 	cfg             RunConfig
 	bootstrapCfg    BootstrapConfig
+	initCfg         InitConfig
 	err             error
 }
 
@@ -285,6 +341,16 @@ func (f *fakeRunner) Bootstrap(_ context.Context, cfg BootstrapConfig) error {
 	return nil
 }
 
+func (f *fakeRunner) Init(_ context.Context, cfg InitConfig) error {
+	f.initCalled = true
+	f.initCfg = cfg
+	return f.err
+}
+
+func (f *fakeRunner) ListWorkflows() []string {
+	return []string{"workflow_bootstrapper", "code_review_pipeline"}
+}
+
 type fakeValidator struct {
 	called bool
 	cfg    ValidateConfig
@@ -295,4 +361,21 @@ func (f *fakeValidator) Validate(_ context.Context, cfg ValidateConfig) error {
 	f.called = true
 	f.cfg = cfg
 	return f.err
+}
+
+type fakeInitializer struct {
+	initCalled bool
+	initCfg    InitConfig
+	workflows  []string
+	err        error
+}
+
+func (f *fakeInitializer) Init(_ context.Context, cfg InitConfig) error {
+	f.initCalled = true
+	f.initCfg = cfg
+	return f.err
+}
+
+func (f *fakeInitializer) ListWorkflows() []string {
+	return f.workflows
 }

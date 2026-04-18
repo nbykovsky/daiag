@@ -22,12 +22,18 @@ type Bootstrapper interface {
 	Bootstrap(context.Context, BootstrapConfig) error
 }
 
+type Initializer interface {
+	Init(context.Context, InitConfig) error
+	ListWorkflows() []string
+}
+
 type App struct {
 	stdout       io.Writer
 	stderr       io.Writer
 	runner       Runner
 	validator    Validator
 	bootstrapper Bootstrapper
+	initializer  Initializer
 }
 
 type RunConfig struct {
@@ -56,14 +62,22 @@ type BootstrapConfig struct {
 	Verbose         bool
 }
 
+type InitConfig struct {
+	ProjectDir string
+	Workflows  []string
+	Force      bool
+}
+
 func New(stdout, stderr io.Writer, runner Runner, validator Validator) *App {
 	bootstrapper, _ := runner.(Bootstrapper)
+	initializer, _ := runner.(Initializer)
 	return &App{
 		stdout:       stdout,
 		stderr:       stderr,
 		runner:       runner,
 		validator:    validator,
 		bootstrapper: bootstrapper,
+		initializer:  initializer,
 	}
 }
 
@@ -107,6 +121,7 @@ func (a *App) buildRoot(ctx context.Context) *cobra.Command {
 	root.AddCommand(a.newRunCmd(ctx))
 	root.AddCommand(a.newValidateCmd(ctx))
 	root.AddCommand(a.newBootstrapCmd(ctx))
+	root.AddCommand(a.newInitCmd(ctx))
 	return root
 }
 
@@ -269,6 +284,65 @@ Examples:
 	cmd.Flags().StringVar(&cfg.WorkflowsLib, "workflows-lib", "", "workflow library directory")
 	cmd.Flags().BoolVar(&cfg.Verbose, "verbose", false, "enable verbose output")
 	cmd.Flags().StringArrayVar(&rawInputs, "input", nil, "workflow input as key=value (repeatable)")
+
+	return cmd
+}
+
+func (a *App) newInitCmd(ctx context.Context) *cobra.Command {
+	var cfg InitConfig
+	var list bool
+
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "Initialize a new project with a .daiag directory",
+		Long: `Create a .daiag directory in the target project and populate it with bundled
+workflow templates, skills, and agents.
+
+By default all bundled workflows are installed. Use --workflow (repeatable) to
+install only specific workflows. Skills and agents are always installed.
+
+Use --list to print available workflow IDs without making any changes.
+Use --force to overwrite an existing .daiag directory.
+
+Flags:
+  --projectdir    Directory to initialize. Defaults to the current directory.
+  --workflow      Repeatable. Install only these workflow IDs (default: all).
+  --force         Overwrite an existing .daiag directory.
+  --list          Print available workflow IDs and exit.
+
+Examples:
+  # Initialize the current project with all bundled workflows
+  daiag init
+
+  # Install only the bootstrap and code-review workflows
+  daiag init --workflow workflow_bootstrapper --workflow code_review_pipeline
+
+  # Initialize a different directory, overwriting any existing .daiag
+  daiag init --projectdir /path/to/repo --force
+
+  # List available workflow IDs without making changes
+  daiag init --list`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				return usageError{fmt.Errorf("unexpected arguments: %s", strings.Join(args, " "))}
+			}
+			if a.initializer == nil {
+				return errors.New("init command is unavailable")
+			}
+			if list {
+				for _, id := range a.initializer.ListWorkflows() {
+					fmt.Fprintln(cmd.OutOrStdout(), id)
+				}
+				return nil
+			}
+			return a.initializer.Init(ctx, cfg)
+		},
+	}
+
+	cmd.Flags().StringVar(&cfg.ProjectDir, "projectdir", "", "directory to initialize (default: current directory)")
+	cmd.Flags().StringArrayVar(&cfg.Workflows, "workflow", nil, "workflow ID to install (repeatable; default: all)")
+	cmd.Flags().BoolVar(&cfg.Force, "force", false, "overwrite existing .daiag directory")
+	cmd.Flags().BoolVar(&list, "list", false, "print available workflow IDs and exit")
 
 	return cmd
 }

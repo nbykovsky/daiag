@@ -14,6 +14,7 @@ import (
 
 	claudeexec "daiag/internal/executor/claude"
 	codexexec "daiag/internal/executor/codex"
+	"daiag/internal/initcmd"
 	"daiag/internal/logging"
 	"daiag/internal/runtime"
 	"daiag/internal/starlarkdsl"
@@ -111,6 +112,32 @@ func (r workflowRunner) Bootstrap(ctx context.Context, cfg BootstrapConfig) erro
 	fmt.Fprintf(r.stdout, "workflow path: %s\n", workflowPath)
 	fmt.Fprintf(r.stdout, "run dir: %s\n", result.RunDir)
 	return nil
+}
+
+func (r workflowRunner) Init(_ context.Context, cfg InitConfig) error {
+	target := cfg.ProjectDir
+	if target == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("get current directory: %w", err)
+		}
+		target = cwd
+	} else {
+		abs, err := filepath.Abs(cfg.ProjectDir)
+		if err != nil {
+			return fmt.Errorf("resolve --projectdir: %w", err)
+		}
+		target = abs
+	}
+	return initcmd.Init(initcmd.Config{
+		ProjectDir: target,
+		Workflows:  cfg.Workflows,
+		Force:      cfg.Force,
+	}, r.stdout)
+}
+
+func (r workflowRunner) ListWorkflows() []string {
+	return initcmd.AvailableWorkflows()
 }
 
 func (r workflowRunner) executeWorkflow(ctx context.Context, workflowID string, projectDir string, runDir string, workflowsLib string, inputs map[string]string) (*runtime.RunResult, error) {
